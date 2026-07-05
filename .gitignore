@@ -1,0 +1,17 @@
+# tarやgzなどの圧縮ファイルを無視
+*.tar
+*.gz
+# データファイルを無視
+*/data/*
+data/*
+# 仮想環境を無視
+ml_env/
+
+# texの生成ファイルを無視
+*.aux
+*.log
+*.out
+*.dvi
+
+# 他の授業ディレクトリ
+other_courses/
