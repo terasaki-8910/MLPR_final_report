@@ -55,7 +55,54 @@
   登録）。デフォルトの`pytest`実行では引き続き実行される（Phase 0完了定義を満たすため）が、
   今後`pytest -m "not slow"`で高速反復時に除外できる。
 
+## Phase 2: スキーマ偵察 + 述語プロファイラ（2026-07-06 完了）
+
+**完了の定義**: 4エンドポイントすべてに対して`docs/profile_dblp.md`, `docs/profile_ndl_authorities.md`,
+`docs/profile_iccu_sbn.md`, `docs/profile_cervantes_virtual.md`が生成され、それぞれ「主要クラス候補」
+「ラベル候補プロパティ」「特徴量候補プロパティ」が記載されている。この4つのファイルの中身が互いに
+大きく異なる（同じテンプレ的結果になっていない）ことを目視確認する。
+
+根拠:
+- `rdf2graph/sparql/profiler.py`（`discover_classes`, `profile_predicates`,
+  `suggest_label_candidates`, `suggest_feature_candidates`, `render_profile_markdown`）を実装。
+  すべて`SPARQLClient.query()`を経由し、`query_builder.py`の`iri`/`int_literal`を再利用（新しい
+  HTTP呼び出し経路を追加していない）。
+- `discover_classes`は`?s a ?class`のCOUNT/GROUP BYクエリで上位クラスを発見する。CLAUDE.md
+  決定事項#14（NDLのLIMIT 5000→1000行の実証済みresult cap）を踏まえ、不自然に丸い数字の
+  カウント（1000, 5000, 10000等の倍数）が出た場合は`ClassCandidate.suspicious=True`でマークし、
+  素通ししない設計にした。
+- `profile_predicates`はサブクエリで対象クラスのインスタンスを`sample_size`件（既定200）に
+  固定してから`?s ?p ?o`と結合することで、主語の境目でLIMITが切れて統計が歪む問題を避けた。
+  被覆率・多値判定・値の型分布・サンプル値を算出する。
+- `tests/test_profiler.py`（9件、ネットワークなしで全pass）: クラス発見のパース、丸い数字の
+  疑わしさ判定、被覆率/多値/値の型の計算、空サンプルの扱い、ラベル/特徴量候補の抽出ロジック、
+  Markdownレンダリングの必須セクション有無を検証。
+- `scripts/run_profiler.py`を実装し、4エンドポイント（DBLP, NDL Web NDL Authorities, ICCU SBN,
+  Cervantes Virtual）に対して実機から実行。`data/raw/<key>/`にクエリ結果をキャッシュしつつ、
+  `docs/profile_dblp.md`, `docs/profile_ndl_authorities.md`, `docs/profile_iccu_sbn.md`,
+  `docs/profile_cervantes_virtual.md`を生成。4ファイルの内容を目視確認し、スキーマ・分布とも
+  互いに大きく異なる（同じテンプレ的結果になっていない）ことを確認した。
+- **重要な発見**（詳細はCLAUDE.md決定事項#16）: DBLPとICCU SBNでは、インスタンス数最上位の
+  クラスが書誌レコードそのものではなく支援的・管理的なクラスだった（DBLP: 1位`cito:Citation`
+  1.59億件 vs 書誌レコードに相当する`dblp:Publication`は6位8,625,948件。ICCU SBN: 1位
+  `bibframe:Item`2,996万件 vs `bibframe:Work`は13位879万件）。NDLとCervantes Virtualでは
+  上位クラスがそのまま自然な分類対象候補と一致した。この非対称性は決定事項#4（決め打ち禁止）
+  の根拠を実地で裏付けるものであり、Phase 3では機械的な1位選択を採用しない。
+- NDLは要求した上位20件に対し発見されたクラスが5件のみだった。丸い数字のカウントは検出されな
+  かったため`suspicious`フラグは立たなかったが、`render_profile_markdown`は要求件数を下回った
+  場合に警告文を出力する設計にしており、`docs/profile_ndl_authorities.md`にもその注記がある。
+
+### 未完了・保留事項（隠さず明記）
+
+- ICCU SBNで`bibframe:Local`/`bibframe:GenerationProcess`/`bibframe:AdminMetadata`の3クラスが
+  完全に同一のインスタンス数（9,420,045件）を示した。丸い数字ではないため`discover_classes`の
+  疑わしさ判定には引っかからないが、構造的な1:1生成（`bibframe:Instance`ごとに機械的に付与される
+  管理用メタデータ）である可能性が高いと判断した。これらはPhase 3の`target_class`候補から
+  除外する前提だが、確証はない（教員への報告時に限界として明記する）。
+- **ユーザー（人間）による目視確認・承認がPhase 3着手の前提条件**（build-lod-project.md Phase 2
+  完了の定義、CLAUDE.md決定事項#4）。本コミット時点ではまだユーザー確認前。
+
 ## 次のフェーズ
 
-Phase 2（スキーマ偵察 + 述語プロファイラ）に進む。`query_builder.py`を再利用し、対象クラス・
-ラベルプロパティのURIをここで初めて実地探索・確定する（決め打ち禁止、CLAUDE.md決定事項#4）。
+Phase 2完了。ユーザーによる`docs/profile_*.md`の目視確認・対象クラス候補の承認を待ってから
+Phase 3（設定ファイルとラベル抽出）に進む。

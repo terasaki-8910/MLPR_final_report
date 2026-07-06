@@ -52,6 +52,12 @@
 13. **SPARQLClientの例外階層とパース経路の統一**: `SPARQLQueryError`（4xx等、リトライしない）/`SPARQLTimeoutError`（リトライ上限超過）/`SPARQLResponseFormatError`（Content-Type不一致・JSONデコード失敗）を型として区別する。`query()`はSELECT系ならBindingの行リスト、ASK系ならboolを返し、`paginate()`は`query()`を介して1ページずつ取得するだけで独自のパース処理を持たない（`_parse_bindings`に一本化）。キャッシュファイルには元のクエリ文字列を保存し、読み込み時に不一致を検知したらWARNINGログを出してミス扱いにする（ハッシュ衝突・書き込み破損の両方に対する保険）。
 14. **ページング終了条件とサーバー側result capの区別は未解決（緩和策のみ）**: `paginate()`は「ページが`page_size`未満なら終了」で判定するが、これは真の終端とサーバー側の暗黙のresult capを区別できず、WARNINGログによる可視化のみの緩和策である。**これは仮説ではなく実証済みの制約**: `scripts/check_endpoints.py`による実地検証で、NDL Web NDL Authoritiesが`LIMIT 5000`要求に対し`1000`行しか返さないことを確認した（`docs/endpoint_status.md`参照、2026-07-06実施）。Phase 3で`configs/ndl_authorities.yaml`の`sampling.page_size`を確定する際、1000を超える値は無言で切り詰められる前提で設計すること。
 15. **Phase 4のグラフ表現は`HeteroData`ではなく`edge_type`付き単一`Data`を採用**: Phase 5で使用する`RGCNConv`は`edge_type`テンソル付きの単一`Data`オブジェクトを直接消費する設計であり、これはPyGのAIFB/MUTAG等RDFノード分類例と同じパターンである。HeteroDataを使うとRGCNConvとの間に追加の変換層が必要になり複雑化するだけでメリットがない。これはPhase 2の発見結果に依存しないアーキテクチャ選択であり、決定事項#4（URI決め打ち禁止）の対象外として先行確定した。
+16. **Phase 2 スキーマ偵察の結果、「インスタンス数上位=分類対象として適切」ではないことが実証された（決定事項#4の裏付け）**: `rdf2graph/sparql/profiler.py`の`discover_classes`を4エンドポイントに対して実行した結果（`docs/profile_*.md`）、DBLPとICCU SBNでは**インスタンス数最上位のクラスが、書誌レコードそのものではなく支援的・管理的なクラスだった**。
+    - DBLP: 1位は`cito:Citation`（1.59億件、引用グラフの各引用エッジをノード化したもの）。書誌レコードに相当する`dblp:Publication`は8,625,948件で6位、`dblp:Inproceedings`/`dblp:Article`はさらに下位。
+    - ICCU SBN: 1位は`bibframe:Item`（2,996万件、個々の所蔵館ごとの実物資料）、2位は`bibframe:Title`（付随エンティティ）。書誌レコードに相当し得る`bibframe:Work`（879万件・13位）や`bibframe:Instance`（1,121万件・7位）はさらに下位。
+    - また ICCU SBN では `bibframe:Local`/`bibframe:GenerationProcess`/`bibframe:AdminMetadata` の3クラスが偶然ではなく**完全に同一のインスタンス数（9,420,045件）**を示した。丸い数字ではないため`discover_classes`の疑わしさ判定（決定事項#14）には引っかからないが、これは`bibframe:Instance`1件につき機械的に1つずつ生成される管理用メタデータノード群である可能性が高く、サーバー側result capの兆候ではないと判断した（Phase 3で`target_class`候補から外すため実害はない）。
+    - NDLとCervantes Virtualでは、インスタンス数上位クラスがそのまま自然な分類対象候補（NDL: `skos:Concept`/`foaf:Person`/`foaf:Organization`＝典拠ノード自体、決定事項#1参照。Cervantes Virtual: `rdaregistry:Work`/`Expression`/`Manifestation`＝FRBR的書誌モデル）と一致した。
+    - この非対称性（4エンドポイント中2件で「1位を鵜呑みにすると支援クラスを掴む」）は、決定事項#4が「クラス・ラベルプロパティの決め打ち禁止」を定めた根拠を実地で裏付けるものであり、Phase 3の`target_class`確定は`docs/profile_*.md`の上位数件を人間が精査した上で行う（機械的な1位選択を採用しない）。
 
 ## 2. 先行研究との関係（正直な記述必須）
 
