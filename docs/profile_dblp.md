@@ -221,3 +221,23 @@
 
 ---
 **注意**: このファイルは自動探索の結果である。CLAUDE.md 決定事項#4に基づき、上記の「主要クラス候補」「ラベル候補プロパティ」「特徴量候補プロパティ」はPhase 3で人間が目視確認・修正してから`configs/*.yaml`に反映すること。鵜呑みにしない。
+
+## 全数集計によるラベル候補検証
+
+- 対象クラス: `https://dblp.org/rdf/schema#Publication`（全体 8625948 件）
+- ラベル候補述語: `https://dblp.org/rdf/schema#bibtexType`
+- 集計方法: `GROUP BY ?v` による全数集計（上位50件まで取得）。200件サンプルの述語プロファイル（決定事項#19のサンプリングバイアス懸念あり）を経由しない。
+
+| 順位 | 値 | 件数 | 対クラス全体比 |
+|---|---|---|---|
+| 1 | `http://purl.org/net/nknouf/ns/bibtex#Article` | 4371169 | 50.7% |
+| 2 | `http://purl.org/net/nknouf/ns/bibtex#Inproceedings` | 3916756 | 45.4% |
+| 3 | `http://purl.org/net/nknouf/ns/bibtex#Phdthesis` | 156031 | 1.8% |
+| 4 | `http://purl.org/net/nknouf/ns/bibtex#Incollection` | 71110 | 0.8% |
+| 5 | `http://purl.org/net/nknouf/ns/bibtex#Proceedings` | 64784 | 0.8% |
+| 6 | `http://purl.org/net/nknouf/ns/bibtex#Misc` | 24555 | 0.3% |
+| 7 | `http://purl.org/net/nknouf/ns/bibtex#Book` | 21516 | 0.2% |
+| 8 | `http://purl.org/net/nknouf/ns/bibtex#Mastersthesis` | 27 | 0.0% |
+
+取得8値の合計は 8625948 件（クラス全体の 100.0%。多値述語では100%を超えうる）。最頻値はラベル付き集合の 50.7% を占める。
+

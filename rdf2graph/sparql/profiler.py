@@ -229,6 +229,105 @@ def profile_predicates(
     )
 
 
+@dataclass(frozen=True)
+class ValueCount:
+    """全数集計クエリで得た、ラベル候補述語の1つの値とその出現件数。"""
+
+    value: str
+    value_type: str  # "uri" | "literal" | "typed-literal" | "bnode"
+    count: int
+
+
+def count_label_values(
+    client: SPARQLClient,
+    class_uri: str,
+    predicate_uri: str,
+    limit: int = 50,
+    literal_only: bool = False,
+) -> list[ValueCount]:
+    """対象クラス全数に対するラベル候補述語の値分布を、GROUP BY集計で直接取得する。
+
+    `profile_predicates`の行単位サンプリング（決定事項#19のサンプリングバイアス懸念あり）を
+    経由せず、`discover_classes`と同じ集計パターンでサーバー側に全数を数えさせる。
+    ランダムサンプリング機構の新規実装（`ORDER BY RAND()`は大規模クラスでサーバー側
+    フルソートが必要になりタイムアウトの危険がある）を避けるための設計。
+
+    `literal_only=True`はliteral/uri混在述語（例: Cervantes Virtualの`dc:subject`）で
+    literal値のみを集計対象にする。
+    """
+    filter_clause = "FILTER(isLiteral(?v)) . " if literal_only else ""
+    query = (
+        "SELECT ?v (COUNT(?s) AS ?count) WHERE { "
+        f"?s a {iri(class_uri)} . "
+        f"?s {iri(predicate_uri)} ?v . "
+        f"{filter_clause}"
+        f"}} GROUP BY ?v ORDER BY DESC(?count) LIMIT {int_literal(limit)}"
+    )
+    rows = client.query(query)
+    if not isinstance(rows, list):
+        raise SPARQLResponseFormatError(
+            "count_label_values() requires a SELECT-shaped query, but got an ASK-shaped "
+            "(boolean) response"
+        )
+    return [
+        ValueCount(value=row["v"].value, value_type=row["v"].type, count=int(row["count"].value))
+        for row in rows
+    ]
+
+
+def render_label_census_markdown(
+    class_uri: str,
+    predicate_uri: str,
+    value_counts: list[ValueCount],
+    class_total: int,
+    limit: int,
+    literal_only: bool,
+) -> str:
+    """「全数集計によるラベル候補検証」節のMarkdownを組み立てる(I/Oを持たない純関数)。
+
+    決定事項#19（サンプリングバイアス懸念）への対応として、200件サンプル節とは独立に
+    対象クラス全数へのGROUP BY集計結果を提示する。既存のサンプル節を置き換えるものではない。
+    """
+    labeled_total = sum(vc.count for vc in value_counts)
+    lines = [
+        "## 全数集計によるラベル候補検証",
+        "",
+        f"- 対象クラス: `{class_uri}`（全体 {class_total} 件）",
+        f"- ラベル候補述語: `{predicate_uri}`" + ("（literal値のみ集計）" if literal_only else ""),
+        f"- 集計方法: `GROUP BY ?v` による全数集計（上位{limit}件まで取得）。"
+        "200件サンプルの述語プロファイル（決定事項#19のサンプリングバイアス懸念あり）を経由しない。",
+        "",
+    ]
+    if not value_counts:
+        lines.append("⚠️ 集計結果が0行だった。述語URIの誤りかエンドポイント側の問題を疑うこと。")
+        lines.append("")
+        return "\n".join(lines) + "\n"
+
+    lines.append("| 順位 | 値 | 件数 | 対クラス全体比 |")
+    lines.append("|---|---|---|---|")
+    for i, vc in enumerate(value_counts, start=1):
+        share = vc.count / class_total if class_total > 0 else 0.0
+        lines.append(f"| {i} | `{vc.value}` | {vc.count} | {share:.1%} |")
+    lines.append("")
+
+    top_share_of_labeled = value_counts[0].count / labeled_total if labeled_total > 0 else 0.0
+    coverage = labeled_total / class_total if class_total > 0 else 0.0
+    lines.append(
+        f"取得{len(value_counts)}値の合計は {labeled_total} 件"
+        f"（クラス全体の {coverage:.1%}。多値述語では100%を超えうる）。"
+        f"最頻値はラベル付き集合の {top_share_of_labeled:.1%} を占める。"
+    )
+    if top_share_of_labeled > 0.9:
+        lines.append("")
+        lines.append(
+            "⚠️ **最頻値がラベル付き集合の90%超を占める極端な偏りがある。**"
+            "このままlabel_propertyとして採用すると多数派クラス予測とほぼ区別がつかなくなるため、"
+            "config確定前に人間の判断を仰ぐこと。"
+        )
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 def suggest_label_candidates(
     predicates: list[PredicateProfile],
     min_coverage: float = DEFAULT_LABEL_MIN_COVERAGE,

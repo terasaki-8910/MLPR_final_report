@@ -5,8 +5,11 @@ from rdf2graph.sparql.profiler import (
     ClassCandidate,
     ClassProfile,
     PredicateProfile,
+    ValueCount,
+    count_label_values,
     discover_classes,
     profile_predicates,
+    render_label_census_markdown,
     render_profile_markdown,
     suggest_feature_candidates,
     suggest_label_candidates,
@@ -268,6 +271,86 @@ def test_suggest_label_candidates_sorts_by_cardinality_ratio_ascending():
     candidates = suggest_label_candidates([high_cardinality, low_cardinality])
 
     assert [p.predicate_uri for p in candidates] == ["http://ex/tight", "http://ex/loose"]
+
+
+def test_count_label_values_parses_rows_and_builds_group_by_query(client, mocker):
+    rows = [
+        {"v": _uri("http://ex/bibtex#Inproceedings"), "count": _literal("3910938")},
+        {"v": _uri("http://ex/bibtex#Article"), "count": _literal("3381776")},
+    ]
+    query_mock = mocker.patch.object(client, "query", return_value=rows)
+
+    result = count_label_values(client, "http://ex/Publication", "http://ex/bibtexType", limit=50)
+
+    assert result == [
+        ValueCount(value="http://ex/bibtex#Inproceedings", value_type="uri", count=3910938),
+        ValueCount(value="http://ex/bibtex#Article", value_type="uri", count=3381776),
+    ]
+    sent_query = query_mock.call_args[0][0]
+    assert "GROUP BY ?v" in sent_query
+    assert "<http://ex/Publication>" in sent_query
+    assert "<http://ex/bibtexType>" in sent_query
+    assert "isLiteral" not in sent_query
+
+
+def test_count_label_values_literal_only_adds_filter(client, mocker):
+    query_mock = mocker.patch.object(client, "query", return_value=[])
+
+    count_label_values(client, "http://ex/Work", "http://ex/subject", literal_only=True)
+
+    assert "FILTER(isLiteral(?v))" in query_mock.call_args[0][0]
+
+
+def test_render_label_census_markdown_includes_shares_and_totals():
+    value_counts = [
+        ValueCount(value="http://ex/A", value_type="uri", count=60),
+        ValueCount(value="http://ex/B", value_type="uri", count=40),
+    ]
+
+    markdown = render_label_census_markdown(
+        class_uri="http://ex/Publication",
+        predicate_uri="http://ex/bibtexType",
+        value_counts=value_counts,
+        class_total=100,
+        limit=50,
+        literal_only=False,
+    )
+
+    assert "全数集計によるラベル候補検証" in markdown
+    assert "60.0%" in markdown
+    assert "40.0%" in markdown
+    assert "90%超" not in markdown
+
+
+def test_render_label_census_markdown_warns_on_extreme_skew():
+    value_counts = [
+        ValueCount(value="http://ex/A", value_type="uri", count=95),
+        ValueCount(value="http://ex/B", value_type="uri", count=5),
+    ]
+
+    markdown = render_label_census_markdown(
+        class_uri="http://ex/Publication",
+        predicate_uri="http://ex/bibtexType",
+        value_counts=value_counts,
+        class_total=100,
+        limit=50,
+        literal_only=False,
+    )
+
+    assert "90%超" in markdown
+
+
+def test_render_label_census_markdown_warns_on_empty_result():
+    markdown = render_label_census_markdown(
+        class_uri="http://ex/Publication",
+        predicate_uri="http://ex/wrongPredicate",
+        value_counts=[],
+        class_total=100,
+        limit=50,
+        literal_only=False,
+    )
+
+    assert "0行" in markdown
 
 
 def test_suggest_feature_candidates_filters_by_min_coverage():

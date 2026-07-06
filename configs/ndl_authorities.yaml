@@ -1,27 +1,40 @@
 # NDL Web NDL Authorities (日本語の主題・人物典拠データ) 設定ファイル。
-# 注意: このエンドポイントは書誌ノードを持たない。分類対象は典拠ノード自体になる
-# （CLAUDE.md 決定事項#1、build-lod-project.md Phase 3 も参照）。
-# Phase 2のスキーマ偵察結果 (docs/profile_ndl_authorities.md) を見てから確定する。
+# Phase 2のスキーマ偵察 + 全数集計検証 (docs/profile_ndl_authorities.md) に基づき確定 (2026-07-06)。
 #
-# endpoint: "https://id.ndl.go.jp/auth/ndla/sparql"
-# target_class: null  # Phase 2の発見結果（実際のクラスURI）で確定する。決め打ちしない。
-# sampling:
-#   max_nodes: 15000
-#   max_edges: 100000
-#   page_size: 500
-#   seed: 42
-# label:
-#   property: null  # Phase 2の発見結果（実際のプロパティURI）で確定する。
-#   top_k: 10
-#   unmatched_policy: "drop"
-# features:
-#   auto_discover: true
-#   min_coverage: 0.30
-#   max_properties: 20
-#   text_properties: []
-#   text_vectorizer: "hashing"
-# split:
-#   train: 0.7
-#   val: 0.15
-#   test: 0.15
-#   stratify: true
+# 注意: NDLは書誌ノードを持たないため、分類対象は典拠ノード (skos:Concept) 自体である
+# (CLAUDE.md 決定事項#1)。他3エンドポイント (書誌レコードが分類対象) と概念が異なる。
+# - skos:inScheme は10値の閉じた集合・被覆率〜100% (GROUP BY全数集計で確認、決定事項#20)。
+#   真の分布: personalNames 70.3% / corporateNames 16.3% / topicalTerms 10.2% /
+#   geographicNames 2.5% / uniformTitles 0.4% / familyNames 0.2% / work 0.1% / 以下僅少。
+
+endpoint: "https://id.ndl.go.jp/auth/ndla/sparql"
+target_class: "http://www.w3.org/2004/02/skos/core#Concept"
+
+sampling:
+  max_nodes: 15000
+  max_edges: 100000
+  # 決定事項#14: NDLはLIMIT 5000要求に対し1000行しか返さないサーバー側result capを実証済み。
+  # 1000を超える値は無言で切り詰められるため、1000を上限とする。
+  page_size: 1000
+  seed: 42
+
+label:
+  property: "http://www.w3.org/2004/02/skos/core#inScheme"
+  # 全数分布で6位以下 (familyNames 0.2%〜) は15,000ノードの一様サンプルでは期待値30件程度
+  # になるため top_k=5 とする。最頻値 personalNames が70.3%と偏っているため、Phase 3の
+  # ラベル分布確認で90%超になる場合は調整する (現時点では90%未満なので許容)。
+  top_k: 5
+  unmatched_policy: "drop"
+
+features:
+  auto_discover: true
+  min_coverage: 0.30
+  max_properties: 20
+  text_properties: ["http://www.w3.org/2000/01/rdf-schema#label"]
+  text_vectorizer: "hashing"
+
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  stratify: true

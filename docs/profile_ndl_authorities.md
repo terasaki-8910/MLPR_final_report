@@ -135,3 +135,25 @@
 
 ---
 **注意**: このファイルは自動探索の結果である。CLAUDE.md 決定事項#4に基づき、上記の「主要クラス候補」「ラベル候補プロパティ」「特徴量候補プロパティ」はPhase 3で人間が目視確認・修正してから`configs/*.yaml`に反映すること。鵜呑みにしない。
+
+## 全数集計によるラベル候補検証
+
+- 対象クラス: `http://www.w3.org/2004/02/skos/core#Concept`（全体 1490689 件）
+- ラベル候補述語: `http://www.w3.org/2004/02/skos/core#inScheme`
+- 集計方法: `GROUP BY ?v` による全数集計（上位50件まで取得）。200件サンプルの述語プロファイル（決定事項#19のサンプリングバイアス懸念あり）を経由しない。
+
+| 順位 | 値 | 件数 | 対クラス全体比 |
+|---|---|---|---|
+| 1 | `http://id.ndl.go.jp/auth#personalNames` | 1048223 | 70.3% |
+| 2 | `http://id.ndl.go.jp/auth#corporateNames` | 242412 | 16.3% |
+| 3 | `http://id.ndl.go.jp/auth#topicalTerms` | 152083 | 10.2% |
+| 4 | `http://id.ndl.go.jp/auth#geographicNames` | 37707 | 2.5% |
+| 5 | `http://id.ndl.go.jp/auth#uniformTitles` | 5755 | 0.4% |
+| 6 | `http://id.ndl.go.jp/auth#familyNames` | 3018 | 0.2% |
+| 7 | `http://id.ndl.go.jp/auth#work` | 1100 | 0.1% |
+| 8 | `http://id.ndl.go.jp/auth#generalSubdivision` | 344 | 0.0% |
+| 9 | `http://id.ndl.go.jp/auth#formSubdivision` | 38 | 0.0% |
+| 10 | `http://id.ndl.go.jp/auth#genreformTerms` | 9 | 0.0% |
+
+取得10値の合計は 1490689 件（クラス全体の 100.0%。多値述語では100%を超えうる）。最頻値はラベル付き集合の 70.3% を占める。
+

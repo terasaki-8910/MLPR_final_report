@@ -337,3 +337,65 @@ url = {https://www.cervantesvirtual.com/obra/oeuvres-de-m-mariotte--comprenant-t
 
 ---
 **注意**: このファイルは自動探索の結果である。CLAUDE.md 決定事項#4に基づき、上記の「主要クラス候補」「ラベル候補プロパティ」「特徴量候補プロパティ」はPhase 3で人間が目視確認・修正してから`configs/*.yaml`に反映すること。鵜呑みにしない。
+
+## 全数集計によるラベル候補検証
+
+- 対象クラス: `http://rdaregistry.info/Elements/c/Work`（全体 384346 件）
+- ラベル候補述語: `http://purl.org/dc/elements/1.1/subject`（literal値のみ集計）
+- 集計方法: `GROUP BY ?v` による全数集計（上位50件まで取得）。200件サンプルの述語プロファイル（決定事項#19のサンプリングバイアス懸念あり）を経由しない。
+
+| 順位 | 値 | 件数 | 対クラス全体比 |
+|---|---|---|---|
+| 1 | `` | 3816 | 1.0% |
+| 2 | `Teatro español -- Siglo 17º` | 3195 | 0.8% |
+| 3 | `Alcoy` | 2966 | 0.8% |
+| 4 | `Literatura` | 2904 | 0.8% |
+| 5 | `Historia` | 2603 | 0.7% |
+| 6 | `Siglo XIX` | 2088 | 0.5% |
+| 7 | `Obras anteriores a 1800` | 1981 | 0.5% |
+| 8 | `Poesía española -- Siglo 20º -- Historia y crítica` | 1832 | 0.5% |
+| 9 | `Vestidos` | 1507 | 0.4% |
+| 10 | `Comercio exterior` | 1299 | 0.3% |
+| 11 | `Derecho -- Filosofía` | 1228 | 0.3% |
+| 12 | `Precios` | 1221 | 0.3% |
+| 13 | `Colecciones - Hemeroteca - Hemeroteca de la Biblioteca Valenciana` | 1160 | 0.3% |
+| 14 | `Poesía española -- Siglo 20º` | 1152 | 0.3% |
+| 15 | `Crédito` | 1070 | 0.3% |
+| 16 | `Depósitos` | 1061 | 0.3% |
+| 17 | `Moneda` | 1026 | 0.3% |
+| 18 | `Bancos comerciales` | 1003 | 0.3% |
+| 19 | `Granada` | 980 | 0.3% |
+| 20 | `España` | 965 | 0.3% |
+| 21 | `Café` | 923 | 0.2% |
+| 22 | `Préstamos` | 901 | 0.2% |
+| 23 | `Pasivos` | 900 | 0.2% |
+| 24 | `Bolsa de valores` | 897 | 0.2% |
+| 25 | `Prensa satírica y humorística` | 885 | 0.2% |
+| 26 | `Correspondencia` | 879 | 0.2% |
+| 27 | `Prensa política` | 877 | 0.2% |
+| 28 | `Ciencias sociales; Ciencias sociales / Economía` | 875 | 0.2% |
+| 29 | `Ganado` | 860 | 0.2% |
+| 30 | `Entrevistas` | 849 | 0.2% |
+| 31 | `Geografía e Historia; Geografía e Historia / Historia general de América del Sur` | 836 | 0.2% |
+| 32 | `Filosofía` | 834 | 0.2% |
+| 33 | `Religiosos` | 772 | 0.2% |
+| 34 | `Ciencias naturales y matemáticas; Ciencias naturales y matemáticas / Animales; Ciencias naturales y matemáticas / Animales / Vertebrados de sangre fría; Ciencias naturales y matemáticas; Ciencias naturales y matemáticas / Ciencias de la vida Biología; Ciencias naturales y matemáticas / Ciencias de la vida Biología / Ecología` | 767 | 0.2% |
+| 35 | `Sermones` | 756 | 0.2% |
+| 36 | `Teatro español -- 1500-1700 (Periodo clásico)` | 754 | 0.2% |
+| 37 | `Literatura infantil y juvenil` | 740 | 0.2% |
+| 38 | `Derecho romano -- Obras anteriores a 1800` | 710 | 0.2% |
+| 39 | `Poesía colombiana Siglo XIX` | 708 | 0.2% |
+| 40 | `Medicina` | 697 | 0.2% |
+| 41 | `Exiliados -- España -- Historia -- 1939-1975` | 678 | 0.2% |
+| 42 | `España. -- EMBNE` | 663 | 0.2% |
+| 43 | `Producción` | 658 | 0.2% |
+| 44 | `Activos` | 656 | 0.2% |
+| 45 | `Sermones españoles` | 621 | 0.2% |
+| 46 | `Cheques` | 608 | 0.2% |
+| 47 | `España -- Historia -- 1931-1939 (República)` | 602 | 0.2% |
+| 48 | `Literatura española -- Historia y crítica` | 596 | 0.2% |
+| 49 | `Teatro español -- Siglo 19º` | 592 | 0.2% |
+| 50 | `Economía; Planificación económica; Economía del trabajo; Finanzas; Desarrollo rural; Economía urbana; Desarrollo sostenible` | 587 | 0.2% |
+
+取得50値の合計は 57738 件（クラス全体の 15.0%。多値述語では100%を超えうる）。最頻値はラベル付き集合の 6.6% を占める。
+

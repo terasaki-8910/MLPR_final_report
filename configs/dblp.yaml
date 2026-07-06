@@ -1,26 +1,40 @@
 # DBLP (計算機科学文献の書誌データ) 設定ファイル。
-# Phase 2のスキーマ偵察結果 (docs/profile_dblp.md) を見てから、下記をコメント解除・確定する。
-# 骨格は .claude/commands/build-lod-project.md Phase 3 を参照。
+# Phase 2のスキーマ偵察 + 全数集計検証 (docs/profile_dblp.md) に基づき確定 (2026-07-06)。
 #
-# endpoint: "https://sparql.dblp.org/sparql"
-# target_class: null  # Phase 2の発見結果（実際のクラスURI）で確定する。決め打ちしない。
-# sampling:
-#   max_nodes: 15000
-#   max_edges: 100000
-#   page_size: 500
-#   seed: 42
-# label:
-#   property: null  # Phase 2の発見結果（実際のプロパティURI）で確定する。
-#   top_k: 10
-#   unmatched_policy: "drop"
-# features:
-#   auto_discover: true
-#   min_coverage: 0.30
-#   max_properties: 20
-#   text_properties: []
-#   text_vectorizer: "hashing"
-# split:
-#   train: 0.7
-#   val: 0.15
-#   test: 0.15
-#   stratify: true
+# target_class/label のURIは決め打ちではなく、discover_classes と count_label_values による
+# 実地検証を経ている (CLAUDE.md 決定事項 #16, #20)。
+# - dblp:Publication はインスタンス数6位 (8,625,948件)。1位の cito:Citation (1.59億件) は
+#   引用エッジをノード化した支援クラスであり分類対象にしない (決定事項#16)。
+# - dblp:bibtexType は8値の閉じた集合・被覆率100% (GROUP BY全数集計で確認、決定事項#20)。
+#   真の分布: Article 50.7% / Inproceedings 45.4% / Phdthesis 1.8% / Incollection 0.8% /
+#   Proceedings 0.8% / Misc 0.3% / Book 0.2% / Mastersthesis 0.0003%。
+
+endpoint: "https://sparql.dblp.org/sparql"
+target_class: "https://dblp.org/rdf/schema#Publication"
+
+sampling:
+  max_nodes: 15000
+  max_edges: 100000
+  page_size: 500
+  seed: 42
+
+label:
+  property: "https://dblp.org/rdf/schema#bibtexType"
+  # 全数分布で6位以下 (Misc 0.3%〜) は15,000ノードの一様サンプルでは期待値50件未満になる
+  # ため top_k=5 とする。Phase 3のラベル分布確認 (docs/label_distribution_dblp.png) を見て
+  # 極端な偏りがあれば調整する。
+  top_k: 5
+  unmatched_policy: "drop"
+
+features:
+  auto_discover: true
+  min_coverage: 0.30
+  max_properties: 20
+  text_properties: ["https://dblp.org/rdf/schema#title"]
+  text_vectorizer: "hashing"
+
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  stratify: true

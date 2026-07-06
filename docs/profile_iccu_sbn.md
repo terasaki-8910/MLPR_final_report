@@ -214,3 +214,65 @@
 
 ---
 **注意**: このファイルは自動探索の結果である。CLAUDE.md 決定事項#4に基づき、上記の「主要クラス候補」「ラベル候補プロパティ」「特徴量候補プロパティ」はPhase 3で人間が目視確認・修正してから`configs/*.yaml`に反映すること。鵜呑みにしない。
+
+## 全数集計によるラベル候補検証
+
+- 対象クラス: `http://id.loc.gov/ontologies/bibframe/Work`（全体 8796317 件）
+- ラベル候補述語: `http://id.loc.gov/ontologies/bibframe/subject`
+- 集計方法: `GROUP BY ?v` による全数集計（上位50件まで取得）。200件サンプルの述語プロファイル（決定事項#19のサンプリングバイアス懸念あり）を経由しない。
+
+| 順位 | 値 | 件数 | 対クラス全体比 |
+|---|---|---|---|
+| 1 | `http://triplestore.iccu.sbn.it/resource/Topic/mostreesposizioni-` | 56126 | 0.6% |
+| 2 | `http://triplestore.iccu.sbn.it/resource/Topic/convegnicongressi-` | 20539 | 0.2% |
+| 3 | `http://triplestore.iccu.sbn.it/resource/Topic/congressi-e-convegnicongressi-` | 20539 | 0.2% |
+| 4 | `http://triplestore.iccu.sbn.it/resource/Topic/rivisteperiodici-` | 17294 | 0.2% |
+| 5 | `http://triplestore.iccu.sbn.it/resource/Topic/pubblicazioni-periodicheperiodici-` | 17294 | 0.2% |
+| 6 | `http://triplestore.iccu.sbn.it/resource/Topic/fotofotografie-` | 15029 | 0.2% |
+| 7 | `http://triplestore.iccu.sbn.it/resource/Topic/documenti-fotograficifotografie-` | 15029 | 0.2% |
+| 8 | `http://triplestore.iccu.sbn.it/resource/Topic/guide-di-viaggioguide-` | 14499 | 0.2% |
+| 9 | `http://triplestore.iccu.sbn.it/resource/Topic/guide-turisticheguide-` | 14499 | 0.2% |
+| 10 | `http://triplestore.iccu.sbn.it/resource/Topic/grande-guerraguerra-mondiale-1914-1918-` | 12094 | 0.1% |
+| 11 | `http://triplestore.iccu.sbn.it/resource/Topic/prima-guerra-mondialeguerra-mondiale-1914-1918-` | 12094 | 0.1% |
+| 12 | `http://triplestore.iccu.sbn.it/resource/Topic/guerra-mondiale-1914-18guerra-mondiale-1914-1918-` | 12094 | 0.1% |
+| 13 | `http://triplestore.iccu.sbn.it/resource/Topic/belle-artiarte-` | 9176 | 0.1% |
+| 14 | `http://triplestore.iccu.sbn.it/resource/Topic/arti-figurativearte-` | 9176 | 0.1% |
+| 15 | `http://triplestore.iccu.sbn.it/resource/Topic/diari-e-memoriediarimemorie-` | 8876 | 0.1% |
+| 16 | `http://triplestore.iccu.sbn.it/resource/Topic/aspetti-economicieconomia-` | 7869 | 0.1% |
+| 17 | `http://triplestore.iccu.sbn.it/resource/Topic/attivita-economicheeconomia-` | 7869 | 0.1% |
+| 18 | `http://triplestore.iccu.sbn.it/resource/Topic/economia-realeeconomia-` | 7869 | 0.1% |
+| 19 | `http://triplestore.iccu.sbn.it/resource/Topic/attivita-politicapolitica-` | 7205 | 0.1% |
+| 20 | `http://triplestore.iccu.sbn.it/resource/Topic/aspetti-politicipolitica-` | 7205 | 0.1% |
+| 21 | `http://triplestore.iccu.sbn.it/resource/Topic/vita-politicapolitica-` | 7205 | 0.1% |
+| 22 | `http://triplestore.iccu.sbn.it/resource/Topic/biografiebiografia-` | 6782 | 0.1% |
+| 23 | `http://triplestore.iccu.sbn.it/resource/Topic/853-92narrativa-italiana-2000-23-` | 6267 | 0.1% |
+| 24 | `http://triplestore.iccu.sbn.it/resource/Topic/libri-scolasticitesti-scolastici-` | 6189 | 0.1% |
+| 25 | `http://triplestore.iccu.sbn.it/resource/Topic/manuali-scolasticitesti-scolastici-` | 6189 | 0.1% |
+| 26 | `http://triplestore.iccu.sbn.it/resource/Topic/libri-per-la-scuolatesti-scolastici-` | 6189 | 0.1% |
+| 27 | `http://triplestore.iccu.sbn.it/resource/Topic/libri-di-testotesti-scolastici-` | 6189 | 0.1% |
+| 28 | `http://triplestore.iccu.sbn.it/resource/Topic/brani-sceltiantologie-` | 5838 | 0.1% |
+| 29 | `http://triplestore.iccu.sbn.it/resource/Topic/florilegiantologie-` | 5838 | 0.1% |
+| 30 | `http://triplestore.iccu.sbn.it/resource/Topic/passi-sceltiantologie-` | 5838 | 0.1% |
+| 31 | `http://triplestore.iccu.sbn.it/resource/Topic/excerptaantologie-` | 5838 | 0.1% |
+| 32 | `http://triplestore.iccu.sbn.it/resource/Topic/cataloghi-di-mostrecataloghi-di-esposizioni-` | 5321 | 0.1% |
+| 33 | `http://triplestore.iccu.sbn.it/resource/Topic/opere-musicalimusica-` | 5149 | 0.1% |
+| 34 | `http://triplestore.iccu.sbn.it/resource/Topic/composizioni-musicalimusica-` | 5149 | 0.1% |
+| 35 | `http://triplestore.iccu.sbn.it/resource/Topic/musica-classicamusica-` | 5149 | 0.1% |
+| 36 | `http://triplestore.iccu.sbn.it/resource/Topic/componimenti-musicalimusica-` | 5149 | 0.1% |
+| 37 | `http://triplestore.iccu.sbn.it/resource/Topic/759-5pittura-italia19-` | 5005 | 0.1% |
+| 38 | `http://triplestore.iccu.sbn.it/resource/Topic/791-43cinema19-` | 4750 | 0.1% |
+| 39 | `http://triplestore.iccu.sbn.it/resource/Topic/guerra-mondiale-1939-45guerra-mondiale-1939-1945-` | 4700 | 0.1% |
+| 40 | `http://triplestore.iccu.sbn.it/resource/Topic/seconda-guerra-mondialeguerra-mondiale-1939-1945-` | 4700 | 0.1% |
+| 41 | `http://triplestore.iccu.sbn.it/resource/Topic/descrizioni-e-viaggidescrizioniviaggi-` | 4660 | 0.1% |
+| 42 | `http://triplestore.iccu.sbn.it/resource/Topic/bibliografia-sistematicabibliografia-` | 4623 | 0.1% |
+| 43 | `http://triplestore.iccu.sbn.it/resource/Topic/aspetti-giuridicidiritto-` | 4390 | 0.0% |
+| 44 | `http://triplestore.iccu.sbn.it/resource/Topic/853-92narrativa-italiana-2000-21-` | 4212 | 0.0% |
+| 45 | `http://triplestore.iccu.sbn.it/resource/Topic/raccolte-collezioni-collezioni-` | 4156 | 0.0% |
+| 46 | `http://triplestore.iccu.sbn.it/resource/Topic/condizioni-socioeconomichecondizioni-economiche-e-sociali-` | 4147 | 0.0% |
+| 47 | `http://triplestore.iccu.sbn.it/resource/Topic/attivita-di-architettoarchitettura-` | 4071 | 0.0% |
+| 48 | `http://triplestore.iccu.sbn.it/resource/Topic/risorse-documentariedocumenti-` | 3948 | 0.0% |
+| 49 | `http://triplestore.iccu.sbn.it/resource/Topic/biografiabiografie-` | 3901 | 0.0% |
+| 50 | `http://triplestore.iccu.sbn.it/resource/Topic/786-2pianoforti21-` | 3806 | 0.0% |
+
+取得50値の合計は 447723 件（クラス全体の 5.1%。多値述語では100%を超えうる）。最頻値はラベル付き集合の 12.5% を占める。
+
