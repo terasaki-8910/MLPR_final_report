@@ -1,79 +1,72 @@
 ---
-description: rdf2tab プロジェクト（DBpedia汎用変換 + Tabular FM ノード分類）をフェーズ順に実装する
+description: rdf2graph プロジェクト（4つの図書館系SPARQLエンドポイント × R-GCNノード分類）をフェーズ順に実装する
 argument-hint: [phase番号 または "status" / "next"]
 ---
 
 # /build-lod-project
 
-このコマンドは、`CLAUDE.md`（ルート）に記載した意思決定に基づき、`rdf2tab` プロジェクトを実装するためのタスク仕様である。**`CLAUDE.md` を先に読んでいない場合はまずそれを読め。** ここに書く指示と `CLAUDE.md` が矛盾する場合、`CLAUDE.md` を優先する。
+このコマンドは `CLAUDE.md`（ルート）の意思決定に基づき `rdf2graph` プロジェクトを実装するためのタスク仕様である。**`CLAUDE.md` を先に読め。** 矛盾があれば `CLAUDE.md` が勝つ。
 
-引数 `$ARGUMENTS` にフェーズ番号が渡された場合はそのフェーズから着手する。`status` の場合は現状の実装済みフェーズを `docs/progress.md`（無ければ作成）を見て報告する。引数なしの場合は未完了の最初のフェーズから着手する。
+時間制約を踏まえてスコープを圧縮した8フェーズ構成にしている。「完了の定義を満たさずに次に進まない」という規律は緩めない。ここを緩めると時間を節約したはずが手戻りで余計に失う。
 
-**フェーズを飛ばすな。** Phase 2 が終わっていない状態で Phase 5 のモデル比較に手を出すことを禁止する。理由: 変換の正しさを検証せずにモデル性能を語っても、性能差が変換バグに起因するのか本質的な差なのか切り分けられず、信頼性の評価軸で崩壊する。
-
-各フェーズは「完了の定義（Definition of Done）」を満たすまで完了とみなさない。「動いた」は完了の定義ではない。
+引数 `$ARGUMENTS` にフェーズ番号があればそこから着手。`status` なら `docs/progress.md` を見て報告。
 
 ---
 
 ## Phase 0: 環境とスケルトン
 
-- `requirements.txt` に固定バージョンで依存関係を書く。最低限: `rdflib`, `SPARQLWrapper`, `pandas`, `pyarrow`, `scikit-learn`, `torch`, `tabicl`, `tabpfn`, `openai`, `python-dotenv`, `pyyaml`, `pytest`, `pytest-mock`。Python 3.11 を前提とする。
-- `setup.py` を最小構成で用意し、`pip install -e .` でパッケージとして import できるようにする。
-- `temp_project_name/` を `rdf2tab/` にリネームし、`CLAUDE.md` のディレクトリ構成通りに空パッケージ（`__init__.py`）を作る。
-- `.env.example` を作成し、`OPENAI_API_KEY=` を記載（値は空、コメントで「未設定でも `--offline` で全実験再現可能」と明記）。
-- `.gitignore` を修正: `data/*` の全除外ルールに **例外を追加**し、`data/processed/llm_cache/` と `data/processed/*.parquet`（サイズが小さいもの）は Git 管理対象にする。生の SPARQL レスポンス（`data/raw/`）は引き続き除外する。
+- プロジェクトのソースコードパッケージを `rdf2graph/` として作成する（既存スケルトンに仮ディレクトリがあれば `rdf2graph/` に置き換える）。
+- `requirements.txt`: `rdflib`, `SPARQLWrapper`, `torch`, `torch-geometric`, `pandas`, `scikit-learn`, `pytest`, `pytest-mock`, `pyyaml`, `matplotlib`。外部API（LLM等）や商用Tabular Foundation Modelへの依存は一切持たない。公開SPARQLエンドポイントとローカルGPUのみで完結する構成にする。これは教員側の環境構築失敗リスクを下げる。
+- `configs/` 配下に `dblp.yaml`, `ndl_authorities.yaml`, `iccu_sbn.yaml`, `cervantes_virtual.yaml` の空テンプレートを作る（中身は Phase 3）。
 
-**完了の定義**: `pip install -e . && pytest` がエラーなく完走する（テストが0件でも良いがコマンドが壊れていないこと）。
+**完了の定義**: `pip install -e . && pytest` がエラーなく完走する。
 
 ---
 
-## Phase 1: SPARQL クライアント（`rdf2tab/sparql/client.py`）
+## Phase 1: SPARQL クライアント（`rdf2graph/sparql/client.py`）
 
-- `SPARQLClient(endpoint: str, cache_dir: Path, timeout: float, max_retries: int)` を実装する。
-- クエリ文字列とその結果のハッシュベースキャッシュ（`data/raw/<hash>.json`）。同一クエリは2度エンドポイントを叩かない。
-- 指数バックオフによるリトライ、タイムアウト処理。
-- ページング用ヘルパー: `paginate(query_template: str, page_size: int, max_total: int) -> Iterator[list[dict]]`。`LIMIT`/`OFFSET` を自動挿入する。ここで**ユーザー入力を生文字列連結でクエリに埋め込むことを禁止**し、プレースホルダ方式にする。
-- **テスト**: 本物のエンドポイントを叩かず、`requests`/`SPARQLWrapper` をモックしたテストで、キャッシュヒット時にネットワーク呼び出しが発生しないこと、リトライが動くこと、ページングが正しく `LIMIT`/`OFFSET` を積むことを検証する。
+- `SPARQLClient(endpoint, cache_dir, timeout, max_retries)`。クエリ文字列ハッシュベースのディスクキャッシュ。指数バックオフリトライ。
+- `paginate(query_template, page_size, max_total)` で `LIMIT`/`OFFSET` を自動管理。ユーザー入力を生文字列連結でクエリに埋め込むことを禁止（プレースホルダ方式）。
+- **テスト**: モックレスポンスでキャッシュヒット時にネットワーク呼び出しが発生しないこと、ページングが正しいことを検証する。実エンドポイントに対する疎通テストは `tests/` ではなく `scripts/check_endpoints.py` のような別スクリプトに分離し、CI では実行しない。
 
-**完了の定義**: `tests/test_sparql_client.py` がネットワーク接続なしで全て pass する。
+**完了の定義**: `tests/test_sparql_client.py` がネットワーク接続なしで pass する。加えて、4エンドポイントそれぞれに対して手動で1回疎通確認し、結果を `docs/endpoint_status.md` に記録する（実装環境から再確認すること。サンドボックス経由の確認は教員のネットワーク環境と同一ではない）。
 
 ---
 
-## Phase 2: 述語プロファイラ（`rdf2tab/sparql/profiler.py`）
+## Phase 2: スキーマ偵察 + 述語プロファイラ（`rdf2graph/sparql/profiler.py`）
 
-目的: 「どのプロパティを特徴量にするか」をユーザーに丸投げしない。
+対象4エンドポイントは正確なオントロジーURIが未調査であるため、`target_class` やラベルプロパティの決め打ちを禁止する（`CLAUDE.md` 決定事項 #4）。
 
-- 指定した `target_class` のインスタンス集合（サンプル、既定 1000 件）に対して、出現する述語ごとに次を集計する: 出現率（インスタンス数に対する%）、値の型（URI / リテラルで文字列・数値・日付を判別）、多値かどうか。
-- スコアリングして候補プロパティを順位付けし、`ProfileResult` として返す（人間可読な `to_markdown()` メソッドを持たせ、`docs/` に出力できるようにする＝了解性の担保）。
-- `configs/*.yaml` の `features.auto_discover: true` のとき、このプロファイラの出力を使って特徴量候補を自動選定する（`min_coverage` 未満は除外、`max_properties` で上限）。
+- `discover_classes(endpoint) -> list[ClassCandidate]`: `SELECT ?class (COUNT(?s) AS ?count) WHERE { ?s a ?class } GROUP BY ?class ORDER BY DESC(?count) LIMIT 20` 相当のクエリでインスタンス数上位のクラスを発見する。
+- 発見したクラス上位数件について述語プロファイラ（出現率・値型・多値判定）を実行し、`docs/profile_<endpoint>.md` に人間可読な形で出力する。
+- **このプロファイル結果を人間（ユーザー）が目視確認してから Phase 3 に進む。** 自動探索の結果を鵜呑みにしてラベル・特徴量を確定させない。理由: NDL典拠データのように書誌ノードを持たないエンドポイントでは、機械的なスコアリングだけでは「意味のある分類対象」を見誤るリスクが高い。
 
-**完了の定義**: `dbo:Book` と `dbo:Person` それぞれに対してプロファイラを実行し、出力markdownを `docs/profile_book.md` / `docs/profile_person.md` として保存する。この2つの出力が**プロパティ集合として大きく異なる**ことを目視確認する（同じであれば `dbo:Person` の選定が間違っている）。
+**完了の定義**: 4エンドポイントすべてに対して `docs/profile_dblp.md`, `docs/profile_ndl_authorities.md`, `docs/profile_iccu_sbn.md`, `docs/profile_cervantes_virtual.md` が生成され、それぞれ「主要クラス候補」「ラベル候補プロパティ」「特徴量候補プロパティ」が記載されている。この4つのファイルの中身が互いに大きく異なる（同じテンプレ的結果になっていない）ことを目視確認する。
 
 ---
 
-## Phase 3: 設定スキーマとラベル抽出（`rdf2tab/convert/schema.py`, `rdf2tab/convert/labels.py`）
+## Phase 3: 設定ファイルとラベル抽出（`rdf2graph/convert/schema.py`, `rdf2graph/convert/labels.py`）
 
-- `configs/dbo_book.yaml`, `configs/dbo_person.yaml` を作成する。スキーマは以下を骨格とする（`CLAUDE.md` 決定事項 #3, #6 に準拠）:
+- Phase 2 の出力を見ながら、4つの `configs/*.yaml` を人間が確定する（自動生成に任せない。ここは「20%の設定」の部分）。骨格:
 
 ```yaml
-endpoint: "https://dbpedia.org/sparql"
-target_class: "dbo:Book"
+endpoint: "https://sparql.dblp.org/sparql"
+target_class: "<Phase2で発見した実際のURI>"
 sampling:
-  max_instances: 5000
+  max_nodes: 15000
+  max_edges: 100000
   page_size: 500
   seed: 42
 label:
-  property: "dct:subject"
-  top_k: 20
-  unmatched_policy: "drop"   # drop | other_class（既定drop、CLAUDE.md参照）
+  property: "<Phase2で発見した実際のURI>"
+  top_k: 10
+  unmatched_policy: "drop"
 features:
   auto_discover: true
   min_coverage: 0.30
-  max_properties: 25
-  text_properties: ["dbo:abstract"]
-  overrides:
-    include: []
-    exclude: ["dbo:wikiPageID", "dbo:wikiPageRevisionID", "dbo:wikiPageLength"]
+  max_properties: 20
+  text_properties: ["<タイトル相当のプロパティ>"]
+  text_vectorizer: "hashing"   # hashing | tfidf, 次元は128〜256程度
 split:
   train: 0.7
   val: 0.15
@@ -81,79 +74,58 @@ split:
   stratify: true
 ```
 
-- `dataclass` でこの YAML をロードするパーサを書く。未知キーはエラーにする（サイレントに無視しない）。
-- ラベル抽出ロジック: 全インスタンスの `dct:subject` 値を集計 → 頻度上位 `top_k` のカテゴリ集合を確定 → 各インスタンスについて、上位カテゴリのうち頻度順で最初にマッチしたものを代表ラベルとする → どれにもマッチしないインスタンスは `unmatched_policy` に従う（既定 `drop`）。
-- **テスト**: 人工的な triple 集合（10〜20件程度、モック）に対してラベル抽出が仕様通りに動くこと、`top_k` 境界条件、`drop` と `other_class` 両方の挙動を検証する。
+- ラベル抽出ロジック: 全インスタンスの `label.property` 値を集計 → 頻度上位 `top_k` のカテゴリ集合を確定 → 各インスタンスについて頻度順で最初にマッチしたものを代表ラベルとする → どれにもマッチしないインスタンスは `unmatched_policy` に従う（既定 `drop`）。
+- NDL典拠データについては「ラベル対象ノード＝典拠ノード自体」であることをコード上のコメントで明記し、他3エンドポイント（書誌ノードが分類対象）と概念が違うことが読んだ人に伝わるようにする。
+- **テスト**: 人工triple集合でのラベル抽出ロジックのユニットテスト。
 
-**完了の定義**: `dbo:Book` の実データに対してラベル抽出を実行し、クラスごとのサンプル数分布（棒グラフ）を `docs/label_distribution_book.png` として出力する。極端な偏り（最大クラスが90%超など）があれば `top_k` かサンプル数を見直す。
-
----
-
-## Phase 4: RDF→Tabular 変換エンジン（`rdf2tab/convert/tabular.py`）
-
-- Phase 2 のプロファイラ出力と Phase 3 のラベルを統合し、`instance_uri, <features...>, label` の DataFrame を **ストリーミングで**構築する（全件を先にメモリに載せない。行ごとに生成して `pyarrow` で逐次書き込み）。
-- 直接プロパティ（リテラル）は型に応じて数値正規化 / one-hot（カテゴリカル） / 生文字列保持（`text_properties` 指定分）に振り分ける。
-- 1-hop object property は、対象 URI の `rdfs:label` を解決して文字列連結するか、出現数を集約する（多値属性の扱いは `CLAUDE.md` 通り、集約方法を明示的に選べるようにする。デフォルトの挙動をコード内コメントで説明する）。
-- 出力は `data/processed/<target_class>/table.parquet` とし、`split` 設定に従って train/val/test を層化分割し、同じディレクトリに保存する。
-- **テスト**: 小さな人工 RDF グラフ（rdflib の in-memory graph）に対して変換をかけ、出力 DataFrame の列・行数・型が期待通りであることを検証する。
-
-**完了の定義**: `dbo:Book` と `dbo:Person` の両方で変換が通り、`data/processed/dbo_book/table.parquet` と `data/processed/dbo_person/table.parquet` が生成される。**この2つに対してコード変更が発生していないこと**（設定ファイルの差分のみで動いたこと）を `git diff` で確認し、`docs/progress.md` に記録する。
+**完了の定義**: 4つの `configs/*.yaml` が確定し、それぞれでラベル抽出を実行した際のクラス分布を `docs/label_distribution_<endpoint>.png` として出力する。極端な偏り（最大クラスが90%超）があれば `top_k` を調整する。
 
 ---
 
-## Phase 5: Tabular Foundation Model 推論（`rdf2tab/models/tabular_fm.py`）
+## Phase 4: RDF→グラフ変換エンジン（`rdf2graph/convert/graph_builder.py`）
 
-- `TabICLv2` を主モデルとしてラップする。`fit_predict(X_train, y_train, X_test) -> predictions, probabilities` のシンプルなインターフェースにする（学習ループを外部に露出させない。in-context learning モデルなので「学習」という概念がGBDTと違う点をdocstringで明記）。
-- `TabPFNv2` も同一インターフェースで実装し、クロスチェックに使う。
-- GPU (RTX 5070 Ti) 上での実行を前提にするが、GPU が無い環境でも CPU フォールバックで動くこと（教員の環境に GPU が無い可能性を考慮）。
-- 推論時間・メモリを計測するデコレータ/コンテキストマネージャ（`rdf2tab/eval/cost.py` と共有）を用意し、1件推論とバッチ一括推論の両方を計測する。
+- rdflib で取得した triple 集合から、`torch_geometric.data.Data`（または異種エッジタイプが多い場合は `HeteroData`）を構築する。
+  - ノード: `target_class` のインスタンス + それらと1-hopで繋がる周辺エンティティ（著者・主題等）。
+  - エッジ: object property をリレーションタイプとして保持する（R-GCNの `edge_type` に対応）。
+  - ノード特徴量: 構造特徴（次数、リレーションタイプ別隣接数）+ テキスト特徴（`text_properties` を hashing/TF-IDF ベクトル化、`CLAUDE.md` 決定事項 #5 の通りエンドポイントごとに独立学習）。
+- メモリディシプリン: `sampling.max_nodes`/`max_edges` で上限を厳格に守る。上限超過時はランダムサブサンプリング（seed固定）で切る。
+- **テスト**: 小さな人工RDFグラフ（rdflibのin-memory graph、数十triple）に対して変換をかけ、出力 `Data` オブジェクトのノード数・エッジ数・特徴次元が期待通りであることを検証する。
 
-**完了の定義**: `dbo:Book` の test split に対して TabICLv2 / TabPFNv2 双方で推論が通り、macro-F1 が `eval/metrics.py` 経由で算出できる。
-
----
-
-## Phase 6: LLM API ベースライン（`rdf2tab/models/llm_baseline.py`）
-
-**`CLAUDE.md` 決定事項 #5 を厳守すること。ここが最も事故りやすい。**
-
-- OpenAI API（既定モデル `gpt-4o-mini`、`configs/*.yaml` または CLI 引数で変更可能）でゼロショット/フューショット分類を行う。
-- プロンプトはインスタンスの特徴量（Phase 4 の表形式データの行）をテキスト化して構築する。ラベル候補（top_k カテゴリ名）を選択肢としてプロンプトに含め、モデルには選択肢の中から選ばせる（自由記述させて事後マッチングする方式は評価がブレるため禁止）。
-- **すべてのリクエスト/レスポンスを `data/processed/llm_cache/<config_hash>.jsonl` にキャッシュする。** 同一 (プロンプト, モデル名) の組に対しては絶対に2度課金しない。
-- `OPENAI_API_KEY` が環境変数/`.env` に無い場合、自動的に `--offline` 相当の挙動になり、キャッシュのみを使う。キャッシュにも無ければ明示的なエラー（サイレントにダミー値を返さない）。
-- 呼び出しごとに prompt/completion トークン数と概算コスト（$）を記録し、`rdf2tab/eval/cost.py` に渡して集計できるようにする。
-
-**完了の定義**: 一度だけ実際に API キーを使って `dbo:Book` test split 全件の推論を行い、結果を `data/processed/llm_cache/` にコミットする。その後 `.env` を削除した状態で再実行し、**ネットワークエラーが出ずキャッシュから同じ結果が再現される**ことを確認する（これが「教員が追加コストなしで再現できる」の実地証明になる）。
+**完了の定義**: 4エンドポイントすべてで変換が通り、`data/processed/<endpoint>/graph.pt` が生成される。**コード変更なしで4エンドポイント分の設定ファイルの差し替えだけで動いたこと**を `git diff` で確認し `docs/progress.md` に記録する（ここが「汎用パイプライン」の主張の実地証明）。
 
 ---
 
-## Phase 7: 多数派クラスベースライン（`rdf2tab/models/majority_baseline.py`）
+## Phase 5: R-GCN とベースライン（`rdf2graph/models/rgcn.py`, `majority_baseline.py`, `features_only_baseline.py`）
 
-- train split の最頻クラスを常に予測するだけの実装（数行）。議論の対象にしない、無条件で実装する（`CLAUDE.md` 決定事項 #6 参照）。
+- R-GCN（`torch_geometric.nn.RGCNConv` を使用、2〜3層）。`fit(data) -> model`, `predict(model, data) -> predictions, embeddings` のインターフェースにする。**埋め込み（最終層直前の出力）を返せるようにすること。Phase 6 のコサイン類似度計算で必須。**
+- 多数派クラスベースライン（数行、無条件で実装、議論しない）。
+- 特徴量のみベースライン（グラフ構造を使わず、Phase 4で作ったノード特徴量だけでロジスティック回帰またはMLP。**これも無条件で実装する**。理由: `CLAUDE.md` 決定事項#8。これがないと「R-GCNの性能向上はグラフ構造由来か、ノード特徴が強いだけか」を切り分けられない）。
+- GPU (RTX 5070 Ti) 実行を前提としつつ、GPU無し環境でもCPUフォールバックで動作すること。
 
-**完了の定義**: 他モデルと同じ評価ハーネスに接続され、レポート用の比較表に自動的に1行として現れる。
-
----
-
-## Phase 8: 評価ハーネス（`rdf2tab/eval/metrics.py`, `rdf2tab/eval/cost.py`）
-
-- 指標: macro-F1, balanced accuracy, per-class confusion matrix。
-- 頑健性評価: 自然なクラス分布と、意図的にダウンサンプリングして偏らせた分布（例: 最大クラスを50%まで間引く）の両方で上記指標を算出し、劣化度合いを比較する。
-- コスト評価: GPU 系（TabICL/TabPFN）は推論時間・`torch.cuda.max_memory_allocated`、LLM 系は実測レイテンシ・トークン数・概算コスト（$）。両者を同じ表で比較できるように統一フォーマット（例: "1推論あたりコスト" を GPU は電力/時間換算しない、素直に時間とメモリ、LLMは時間と$として併記し、単位が異なることを表のキャプションで明記する。**無理に同一単位に揃えて誤魔化さない**）。
-- 変換時間のスケーリング測定: `sampling.max_instances` を 500/1000/2000/5000 と振って Phase 4 の変換を再実行し、SPARQL抽出時間と純変換時間を分離して記録、`docs/conversion_time_scaling.png` に曲線としてプロットする。
-
-**完了の定義**: `docs/results_dbo_book.md` と `docs/results_dbo_person.md` に、モデル×指標の比較表と頑健性曲線・変換時間曲線が出力される。
+**完了の定義**: 4エンドポイントそれぞれで R-GCN・多数派・特徴量のみの3モデルが動き、macro-F1が算出できる。
 
 ---
 
-## Phase 9: README とレポート下地
+## Phase 6: 評価ハーネス（`rdf2graph/eval/metrics.py`, `cost.py`, `embedding_similarity.py`）
 
-- `README.md` を、`CLAUDE.md` の内容を踏まえて次の章立てで書き直す: 背景（先行研究との差別化を含む）/ データとラベル定義 / 変換パイプライン / モデルとベースライン / 実行方法（`pip install` から結果再現までの具体コマンド）/ 既知の限界（GBDT非採用、LLM APIコスト依存の2点を明記）。
-- `docs/report.md` に、課題PDFが要求する「目的・方法・結果と考察」の3節構成でドラフトを作る（本文は実験結果が出てから学生が最終的に書くが、骨子と図表の挿入位置はここで用意する）。
+- 精度: macro-F1, balanced accuracy, 混同行列。
+- コスト: 学習時間・推論時間（GPU: `torch.cuda.max_memory_allocated`）。SPARQL抽出時間とグラフ構築時間を分離して記録し、`sampling.max_nodes` を振ってスケーリング傾向を`docs/conversion_time_scaling.png`に出す。
+- **クラス分離度診断**（`embedding_similarity.py`）: R-GCNの埋め込みからラベルごとの平均ベクトル（セントロイド）を計算し、エンドポイント内の全クラスペアに対してコサイン類似度を算出、ヒートマップとして `docs/class_separation_<endpoint>.png` に出力する。4エンドポイント分をまとめた比較表（例: 「クラスペア間コサイン類似度の平均値」を1つの要約統計量にして4エンドポイントを並べる）を `docs/class_separation_summary.md` に作る。
+- **意図的に実装しないもの**（`CLAUDE.md` 決定事項#9）: グラフ構造ロバスト性（エッジ削除耐性）、スケールアウト性、人為的クラス不均衡実験。これらを「今後の課題」として `docs/results_*.md` に明記する。
 
-**完了の定義**: 新規に `git clone` した状態を想定し、README記載のコマンドだけを上から順に実行して `docs/results_*.md` まで到達できること（教員視点でのドライラン）。
+**完了の定義**: `docs/results_<endpoint>.md`（4本）にモデル×指標の比較表、コサイン類似度ヒートマップ、変換時間曲線が出力され、`docs/class_separation_summary.md` に4エンドポイント横断の要約が出る。
+
+---
+
+## Phase 7: README と報告書下地
+
+- `README.md` を次の章立てで書く: 背景（新規性の主張が「比較分析」にある理由を明記）/ 対象エンドポイント4件の紹介 / 変換パイプライン / R-GCNとベースライン / 実行方法（教員が `pip install` から `docs/results_*.md` 再現まで到達できる具体コマンド）/ 既知の限界（グラフ構造ロバスト性・スケールアウト性の非評価、クラス不均衡実験の非実施、エンドポイント間ラベル空間非共有の3点を明記）。
+- `docs/report.md` に「目的・方法・結果と考察」の3節構成のドラフトを作る。
+
+**完了の定義**: 新規に `git clone` した状態から README のコマンドだけを順に実行して `docs/results_*.md` と `docs/class_separation_summary.md` まで到達できること。
 
 ---
 
 ## 進捗記録
 
-各フェーズ完了時に `docs/progress.md` に日付・フェーズ番号・完了の定義を満たしたことの根拠（テスト結果、生成ファイルパス）を追記する。次回セッションはここを読んで再開位置を判断する。
+各フェーズ完了時に `docs/progress.md` に日付・フェーズ番号・完了の定義を満たした根拠を追記する。
