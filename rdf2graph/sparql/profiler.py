@@ -19,20 +19,18 @@ logger = get_logger(__name__)
 DEFAULT_CLASS_LIMIT = 20
 DEFAULT_PREDICATE_SAMPLE_SIZE = 200
 DEFAULT_TOP_N_CLASSES_TO_PROFILE = 5
-DEFAULT_MAX_SAMPLE_VALUES = 5
+DEFAULT_VALUE_HISTOGRAM_TOP_N = 15
 DEFAULT_LABEL_MIN_COVERAGE = 0.5
+DEFAULT_LABEL_MAX_CARDINALITY_RATIO = 0.5
+DEFAULT_LABEL_MIN_DISTINCT_VALUES = 2
 DEFAULT_FEATURE_MIN_COVERAGE = 0.30
+
+RDF_TYPE_URI = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 
 # NDLで実証済みのサーバー側result cap(LIMIT 5000->1000行、docs/endpoint_status.md参照)と
 # 同種の「いかにも人為的な打ち切り」を示唆する丸い数字。GROUP BY集計でも同種の暗黙capが
 # 起きうることを前提に、これらの値が出た場合は疑わしいとマークする(CLAUDE.md決定事項#14)。
 _SUSPICIOUS_ROUND_COUNTS = {100, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000}
-
-_LABEL_HINT_TOKENS = ("label", "title", "name", "preflabel", "caption", "heading")
-
-
-class ProfilerError(Exception):
-    """profiler.py固有のエラーの基底クラス。"""
 
 
 @dataclass(frozen=True)
@@ -47,13 +45,24 @@ class ClassCandidate:
 
 @dataclass(frozen=True)
 class PredicateProfile:
-    """あるクラスのサンプルインスタンス集合に対する、ある述語の出現傾向。"""
+    """あるクラスのサンプルインスタンス集合に対する、ある述語の出現傾向。
+
+    `distinct_value_basis`/`distinct_value_count`/`label_cardinality_ratio`/`value_histogram`は
+    「分類ラベル候補として機能しうるか」を判定するための値の異なり数(カーディナリティ)指標。
+    literalとuriの値が混在する述語（例: dc:subjectがLCSH文字列と人物URIを同居させている場合）は
+    literal側の値だけを対象にする。uri側は別の意味の関係が混入している可能性が高いため
+    （suggest_label_candidatesの判定基準の説明も参照）。
+    """
 
     predicate_uri: str
     coverage: float
     is_multivalued: bool
     value_types: dict[str, int] = field(default_factory=dict)
-    sample_values: list[str] = field(default_factory=list)
+    covered_subject_count: int = 0
+    distinct_value_basis: str = "none"  # "literal" | "uri" | "none"(bnodeのみ、または値なし)
+    distinct_value_count: int = 0
+    label_cardinality_ratio: float | None = None
+    value_histogram: dict[str, int] = field(default_factory=dict)  # basis側の値の頻度上位、多い順
 
 
 @dataclass(frozen=True)
@@ -114,13 +123,17 @@ def profile_predicates(
     client: SPARQLClient,
     class_uri: str,
     sample_size: int = DEFAULT_PREDICATE_SAMPLE_SIZE,
-    max_sample_values: int = DEFAULT_MAX_SAMPLE_VALUES,
+    total_instance_count: int | None = None,
 ) -> ClassProfile:
     """`class_uri`のインスタンスを`sample_size`件サンプリングし、述語ごとの被覆率・
-    値の型・多値判定を行う。
+    値の型・多値判定・分類ラベル候補用のカーディナリティ指標を計算する。
 
     サブクエリで先にインスタンス集合を固定してから`?s ?p ?o`と結合するため、外側に
     LIMITを掛けて途中の主語で打ち切る(=一部の主語だけ不完全な統計になる)ことを避ける。
+
+    `total_instance_count`は`discover_classes`で得た真のインスタンス総数（分かっていれば）。
+    渡された場合はレンダリング時に「全体X件中Y件をサンプリング」を表示できる。渡さない場合は
+    サンプル件数をそのまま使う(真の総数は不明という意味)。
     """
     query = (
         "SELECT ?s ?p ?o WHERE { "
@@ -138,7 +151,7 @@ def profile_predicates(
     total_subjects = _sample_instance_count(rows)
     if total_subjects == 0:
         return ClassProfile(
-            class_candidate=ClassCandidate(class_uri=class_uri, count=0),
+            class_candidate=ClassCandidate(class_uri=class_uri, count=total_instance_count or 0),
             sample_size=0,
             predicates=[],
         )
@@ -146,7 +159,12 @@ def profile_predicates(
     per_predicate_subjects: dict[str, set[str]] = defaultdict(set)
     per_predicate_triple_count: dict[str, int] = defaultdict(int)
     per_predicate_value_types: dict[str, Counter] = defaultdict(Counter)
-    per_predicate_samples: dict[str, list[str]] = defaultdict(list)
+    # 分類ラベル候補判定用: literal(typed-literal含む)とuriを別集計し、両方あればliteral優先で
+    # 採用する(uri側は別の意味の関係が混入している可能性が高いため、混在時はliteral側のみ見る)。
+    per_predicate_literal_values: dict[str, Counter] = defaultdict(Counter)
+    per_predicate_literal_subjects: dict[str, set[str]] = defaultdict(set)
+    per_predicate_uri_values: dict[str, Counter] = defaultdict(Counter)
+    per_predicate_uri_subjects: dict[str, set[str]] = defaultdict(set)
 
     for row in rows:
         subject = row["s"].value
@@ -155,53 +173,92 @@ def profile_predicates(
         per_predicate_subjects[predicate].add(subject)
         per_predicate_triple_count[predicate] += 1
         per_predicate_value_types[predicate][obj.type] += 1
-        if len(per_predicate_samples[predicate]) < max_sample_values:
-            per_predicate_samples[predicate].append(obj.value)
+        if obj.type in ("literal", "typed-literal"):
+            per_predicate_literal_values[predicate][obj.value] += 1
+            per_predicate_literal_subjects[predicate].add(subject)
+        elif obj.type == "uri":
+            per_predicate_uri_values[predicate][obj.value] += 1
+            per_predicate_uri_subjects[predicate].add(subject)
+        # bnodeは値そのものに再現性がないため、カーディナリティ判定の対象にしない
 
     profiles = []
     for predicate, subjects in per_predicate_subjects.items():
         coverage = len(subjects) / total_subjects
         is_multivalued = per_predicate_triple_count[predicate] > len(subjects)
+
+        if per_predicate_literal_values[predicate]:
+            basis = "literal"
+            value_counter = per_predicate_literal_values[predicate]
+            basis_subject_count = len(per_predicate_literal_subjects[predicate])
+        elif per_predicate_uri_values[predicate]:
+            basis = "uri"
+            value_counter = per_predicate_uri_values[predicate]
+            basis_subject_count = len(per_predicate_uri_subjects[predicate])
+        else:
+            basis = "none"
+            value_counter = Counter()
+            basis_subject_count = 0
+
+        distinct_value_count = len(value_counter)
+        label_cardinality_ratio = (
+            distinct_value_count / basis_subject_count if basis_subject_count > 0 else None
+        )
+
         profiles.append(
             PredicateProfile(
                 predicate_uri=predicate,
                 coverage=coverage,
                 is_multivalued=is_multivalued,
                 value_types=dict(per_predicate_value_types[predicate]),
-                sample_values=per_predicate_samples[predicate],
+                covered_subject_count=len(subjects),
+                distinct_value_basis=basis,
+                distinct_value_count=distinct_value_count,
+                label_cardinality_ratio=label_cardinality_ratio,
+                value_histogram=dict(value_counter.most_common(DEFAULT_VALUE_HISTOGRAM_TOP_N)),
             )
         )
     profiles.sort(key=lambda p: p.coverage, reverse=True)
 
     return ClassProfile(
-        class_candidate=ClassCandidate(class_uri=class_uri, count=total_subjects),
+        class_candidate=ClassCandidate(
+            class_uri=class_uri,
+            count=total_instance_count if total_instance_count is not None else total_subjects,
+        ),
         sample_size=total_subjects,
         predicates=profiles,
     )
 
 
-def _tail_of(uri: str) -> str:
-    return uri.rsplit("/", 1)[-1].rsplit("#", 1)[-1].lower()
-
-
-def _looks_like_label_predicate(predicate_uri: str) -> bool:
-    tail = _tail_of(predicate_uri)
-    return any(token in tail for token in _LABEL_HINT_TOKENS)
-
-
 def suggest_label_candidates(
-    predicates: list[PredicateProfile], min_coverage: float = DEFAULT_LABEL_MIN_COVERAGE
+    predicates: list[PredicateProfile],
+    min_coverage: float = DEFAULT_LABEL_MIN_COVERAGE,
+    max_cardinality_ratio: float = DEFAULT_LABEL_MAX_CARDINALITY_RATIO,
+    min_distinct_values: int = DEFAULT_LABEL_MIN_DISTINCT_VALUES,
 ) -> list[PredicateProfile]:
-    """被覆率が高く、値の大半がliteralな述語をラベル候補として提示する(確定ではない)。"""
-    candidates = []
-    for p in predicates:
-        total = sum(p.value_types.values())
-        if total == 0 or p.coverage < min_coverage:
-            continue
-        literal_ratio = p.value_types.get("literal", 0) / total
-        if literal_ratio >= 0.5:
-            candidates.append(p)
-    candidates.sort(key=lambda p: (not _looks_like_label_predicate(p.predicate_uri), -p.coverage))
+    """被覆率が高く、かつ値の異なり数が(値を持つ主語数に対して)十分小さい述語を
+    分類ラベル候補として提示する(確定ではない)。
+
+    `rdfs:label`/`dc:title`/`dc:created`のような自由テキスト・タイムスタンプは被覆率が
+    高くても主語ごとにほぼ1つの異なる値を持つため(cardinality_ratioがほぼ1.0)除外される。
+    値の型がuriであることは除外理由にしない(例: `skos:inScheme`のような閉じた集合の
+    URI述語は良い分類ラベル候補になりうる)。多値であること自体も除外理由にしない
+    (Phase 3のラベル抽出ロジックは頻度上位カテゴリに複数値のいずれかがマッチすれば良い設計)。
+
+    異なり値数が`min_distinct_values`未満(既定2、つまり実質1種類しか値を持たない)の述語は
+    カーディナリティ比が最小(0に近い)になるため素朴なソートでは最上位に来てしまうが、
+    分類先が実質1クラスしかない述語は分類ラベルとして無意味なので明示的に除外する
+    (実例: Cervantes Virtualの`dc:terms:created`は全インスタンスで"02/02/2026"固定値
+    ＝収集日時のスタンプであり、実データの属性ではない)。
+    """
+    candidates = [
+        p
+        for p in predicates
+        if p.label_cardinality_ratio is not None
+        and p.coverage >= min_coverage
+        and p.label_cardinality_ratio <= max_cardinality_ratio
+        and p.distinct_value_count >= min_distinct_values
+    ]
+    candidates.sort(key=lambda p: (p.label_cardinality_ratio, -p.coverage))
     return candidates
 
 
@@ -209,7 +266,9 @@ def suggest_feature_candidates(
     predicates: list[PredicateProfile], min_coverage: float = DEFAULT_FEATURE_MIN_COVERAGE
 ) -> list[PredicateProfile]:
     """被覆率がしきい値(Phase3設定テンプレの`min_coverage`既定値0.30)以上の述語を
-    特徴量候補として提示する(確定ではない)。"""
+    特徴量候補として提示する(確定ではない)。分類ラベルと異なり、特徴量は自由テキスト
+    (タイトル等)でもハッシュ化/TF-IDFベクトル化すれば良いため、カーディナリティでは
+    絞り込まない。"""
     return sorted((p for p in predicates if p.coverage >= min_coverage), key=lambda p: -p.coverage)
 
 
@@ -243,29 +302,57 @@ def render_profile_markdown(
     lines.append("")
     for profile in class_profiles:
         cand = profile.class_candidate
-        lines.append(f"### `{cand.class_uri}`（サンプルインスタンス数: {profile.sample_size}）")
+        if cand.count and cand.count != profile.sample_size:
+            header_note = f"全体 {cand.count} 件中 {profile.sample_size} 件をサンプリング"
+        else:
+            header_note = f"サンプルインスタンス数: {profile.sample_size}"
+        lines.append(f"### `{cand.class_uri}`（{header_note}）")
         lines.append("")
         if not profile.predicates:
             lines.append("(サンプルが0件だったため述語プロファイルなし)")
             lines.append("")
             continue
-        lines.append("| 述語URI | 被覆率 | 多値 | 値の型 | サンプル値 |")
-        lines.append("|---|---|---|---|---|")
+        lines.append(
+            "| 述語URI | 被覆率 | 多値 | 値の型 | 異なり値数(対象主語数比) | 頻出値(上位) |"
+        )
+        lines.append("|---|---|---|---|---|---|")
         for p in profile.predicates:
             value_types_str = ", ".join(f"{k}:{v}" for k, v in sorted(p.value_types.items()))
-            samples_str = "; ".join(p.sample_values)
+            cardinality_str = (
+                f"{p.distinct_value_count} ({p.label_cardinality_ratio:.0%})"
+                if p.label_cardinality_ratio is not None
+                else "-"
+            )
+            histogram_str = "; ".join(f"{v}({c})" for v, c in list(p.value_histogram.items())[:5])
             lines.append(
                 f"| `{p.predicate_uri}` | {p.coverage:.0%} | {'yes' if p.is_multivalued else 'no'} | "
-                f"{value_types_str} | {samples_str} |"
+                f"{value_types_str} | {cardinality_str} | {histogram_str} |"
             )
         lines.append("")
 
+        type_profile = next((p for p in profile.predicates if p.predicate_uri == RDF_TYPE_URI), None)
+        if type_profile is not None and type_profile.is_multivalued:
+            breakdown = "; ".join(f"`{v}`({c}件)" for v, c in type_profile.value_histogram.items())
+            lines.append(
+                f"⚠️ このクラスのインスタンスは複数の`rdf:type`を同時に持つ場合がある"
+                f"（内訳: {breakdown}）。追加の述語取得なしに使えるサブタイプ由来のラベル候補に"
+                "なりうるため検討する価値がある。"
+            )
+            lines.append("")
+
         label_candidates = suggest_label_candidates(profile.predicates)
-        lines.append("**ラベル候補プロパティ**（被覆率・値の型からの機械的な提案。確定ではない）:")
+        lines.append(
+            "**ラベル候補プロパティ**（被覆率が高く、値の異なり数が対象主語数に対して"
+            "小さい＝閉じた集合とみなせる述語。確定ではない）:"
+        )
         lines.append("")
         if label_candidates:
             for p in label_candidates:
-                lines.append(f"- `{p.predicate_uri}`（被覆率 {p.coverage:.0%}）")
+                lines.append(
+                    f"- `{p.predicate_uri}`（被覆率 {p.coverage:.0%}、"
+                    f"異なり値数 {p.distinct_value_count}/{p.covered_subject_count} "
+                    f"= {p.label_cardinality_ratio:.0%}）"
+                )
         else:
             lines.append("- (機械的な提案なし。人間による個別調査が必要)")
         lines.append("")

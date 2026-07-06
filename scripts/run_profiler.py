@@ -31,6 +31,18 @@ ENDPOINTS = {
     "cervantes_virtual": ("Cervantes Virtual", "https://data.cervantesvirtual.com/sparql"),
 }
 
+# インスタンス数上位N件だけでは書誌レコードに相当するクラスを見逃すことが実証された
+# (CLAUDE.md決定事項#16: DBLPの1位はcito:Citation、ICCU SBNの1位はbibframe:Item。
+# いずれも書誌レコードそのものではない)。上位N件に加え、上位20件の中から人間が
+# 「本命候補」として個別に指定したクラスも追加でプロファイルする。
+EXTRA_CLASSES_OF_INTEREST: dict[str, list[str]] = {
+    "dblp": ["https://dblp.org/rdf/schema#Publication"],
+    "iccu_sbn": [
+        "http://id.loc.gov/ontologies/bibframe/Work",
+        "http://id.loc.gov/ontologies/bibframe/Instance",
+    ],
+}
+
 # GROUP BY集計は全件スキャンになりうるため、疎通確認(check_endpoints.py)より長めのタイムアウト
 # を与える。それでも失敗した場合は当該エンドポイントをスキップし、他の3件は続行する。
 QUERY_TIMEOUT_SECONDS = 120.0
@@ -46,17 +58,32 @@ def profile_one_endpoint(key: str, endpoint_name: str, endpoint_url: str) -> str
         logger.warning("discover_classes failed for %s (%s): %s", endpoint_name, endpoint_url, exc)
         return None
 
-    top_classes = class_candidates[:DEFAULT_TOP_N_CLASSES_TO_PROFILE]
+    by_uri = {c.class_uri: c for c in class_candidates}
+    target_uris = [c.class_uri for c in class_candidates[:DEFAULT_TOP_N_CLASSES_TO_PROFILE]]
+    for extra_uri in EXTRA_CLASSES_OF_INTEREST.get(key, []):
+        if extra_uri not in target_uris:
+            target_uris.append(extra_uri)
+        if extra_uri not in by_uri:
+            logger.warning(
+                "%s: extra class of interest %s was not in the top-%d discover_classes result; "
+                "profiling it anyway, but its true instance count is unknown",
+                endpoint_name,
+                extra_uri,
+                DEFAULT_CLASS_LIMIT,
+            )
+
     class_profiles = []
-    for candidate in top_classes:
+    for class_uri in target_uris:
+        candidate = by_uri.get(class_uri)
         try:
             profile = profile_predicates(
-                client, candidate.class_uri, sample_size=DEFAULT_PREDICATE_SAMPLE_SIZE
+                client,
+                class_uri,
+                sample_size=DEFAULT_PREDICATE_SAMPLE_SIZE,
+                total_instance_count=candidate.count if candidate is not None else None,
             )
         except SPARQLClientError as exc:
-            logger.warning(
-                "profile_predicates failed for %s class=%s: %s", endpoint_name, candidate.class_uri, exc
-            )
+            logger.warning("profile_predicates failed for %s class=%s: %s", endpoint_name, class_uri, exc)
             continue
         class_profiles.append(profile)
 

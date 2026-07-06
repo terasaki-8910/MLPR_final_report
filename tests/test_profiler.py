@@ -3,6 +3,7 @@ import pytest
 from rdf2graph.sparql.client import Binding, SPARQLClient
 from rdf2graph.sparql.profiler import (
     ClassCandidate,
+    ClassProfile,
     PredicateProfile,
     discover_classes,
     profile_predicates,
@@ -41,9 +42,7 @@ def test_discover_classes_parses_rows_in_order(client, mocker):
 
 
 def test_discover_classes_flags_suspiciously_round_counts(client, mocker):
-    rows = [
-        {"class": _uri("http://example.org/Thing"), "count": _literal("1000")},
-    ]
+    rows = [{"class": _uri("http://example.org/Thing"), "count": _literal("1000")}]
     mocker.patch.object(client, "query", return_value=rows)
 
     candidates = discover_classes(client)
@@ -97,31 +96,178 @@ def test_profile_predicates_handles_empty_sample(client, mocker):
     assert profile.predicates == []
 
 
-def test_suggest_label_candidates_prefers_name_hinted_predicates():
+def test_profile_predicates_uses_total_instance_count_when_given(client, mocker):
+    rows = [{"s": _uri("http://ex/s1"), "p": _uri("http://ex/title"), "o": _literal("Paper A")}]
+    mocker.patch.object(client, "query", return_value=rows)
+
+    profile = profile_predicates(client, "http://ex/Paper", sample_size=1, total_instance_count=8_625_948)
+
+    assert profile.class_candidate.count == 8_625_948
+    assert profile.sample_size == 1
+
+
+def test_profile_predicates_computes_cardinality_for_free_text_predicate(client, mocker):
+    # 5件のインスタンス全てが異なるタイトルを持つ -> カーディナリティ比 = 1.0 (分類ラベル不適)
+    rows = [
+        {"s": _uri(f"http://ex/s{i}"), "p": _uri("http://ex/title"), "o": _literal(f"Unique Title {i}")}
+        for i in range(5)
+    ]
+    mocker.patch.object(client, "query", return_value=rows)
+
+    profile = profile_predicates(client, "http://ex/Paper", sample_size=5)
+
+    title = profile.predicates[0]
+    assert title.distinct_value_basis == "literal"
+    assert title.distinct_value_count == 5
+    assert title.label_cardinality_ratio == pytest.approx(1.0)
+
+
+def test_profile_predicates_computes_low_cardinality_for_closed_set_predicate(client, mocker):
+    # 10件のインスタンスが2種類のスキームURIのいずれかを持つ -> カーディナリティ比が低い
+    rows = []
+    for i in range(10):
+        scheme = "http://ex/scheme/A" if i % 2 == 0 else "http://ex/scheme/B"
+        rows.append({"s": _uri(f"http://ex/s{i}"), "p": _uri("http://ex/inScheme"), "o": _uri(scheme)})
+    mocker.patch.object(client, "query", return_value=rows)
+
+    profile = profile_predicates(client, "http://ex/Concept", sample_size=10)
+
+    in_scheme = profile.predicates[0]
+    assert in_scheme.distinct_value_basis == "uri"
+    assert in_scheme.distinct_value_count == 2
+    assert in_scheme.label_cardinality_ratio == pytest.approx(2 / 10)
+    assert in_scheme.value_histogram == {"http://ex/scheme/A": 5, "http://ex/scheme/B": 5}
+
+
+def test_profile_predicates_mixed_literal_and_uri_uses_literal_only(client, mocker):
+    # dc:subjectのような述語がliteral(主題語)とuri(人物リンク)を同居させているケース。
+    # literal側だけがカーディナリティ判定の対象になるべき。
+    rows = [
+        {"s": _uri("http://ex/s1"), "p": _uri("http://ex/subject"), "o": _literal("History")},
+        {"s": _uri("http://ex/s2"), "p": _uri("http://ex/subject"), "o": _literal("History")},
+        {"s": _uri("http://ex/s3"), "p": _uri("http://ex/subject"), "o": _literal("Law")},
+        {"s": _uri("http://ex/s1"), "p": _uri("http://ex/subject"), "o": _uri("http://ex/person/1")},
+    ]
+    mocker.patch.object(client, "query", return_value=rows)
+
+    profile = profile_predicates(client, "http://ex/Work", sample_size=3)
+
+    subject = profile.predicates[0]
+    assert subject.distinct_value_basis == "literal"
+    assert subject.distinct_value_count == 2  # "History", "Law" のみ(uriの人物リンクは除外)
+    assert subject.value_histogram == {"History": 2, "Law": 1}
+
+
+def test_profile_predicates_bnode_only_predicate_has_no_cardinality(client, mocker):
+    rows = [
+        {
+            "s": _uri("http://ex/s1"),
+            "p": _uri("http://ex/altLabel"),
+            "o": Binding(value="_:b1", type="bnode"),
+        }
+    ]
+    mocker.patch.object(client, "query", return_value=rows)
+
+    profile = profile_predicates(client, "http://ex/Concept", sample_size=1)
+
+    alt_label = profile.predicates[0]
+    assert alt_label.distinct_value_basis == "none"
+    assert alt_label.label_cardinality_ratio is None
+
+
+def test_suggest_label_candidates_excludes_high_cardinality_free_text():
     predicates = [
         PredicateProfile(
-            predicate_uri="http://ex/dblp-id",
+            predicate_uri="http://ex/title",
             coverage=0.9,
             is_multivalued=False,
-            value_types={"literal": 90},
+            covered_subject_count=90,
+            distinct_value_basis="literal",
+            distinct_value_count=90,
+            label_cardinality_ratio=1.0,
         ),
         PredicateProfile(
-            predicate_uri="http://ex/title",
-            coverage=0.85,
+            predicate_uri="http://ex/inScheme",
+            coverage=0.95,
             is_multivalued=False,
-            value_types={"literal": 85},
-        ),
-        PredicateProfile(
-            predicate_uri="http://ex/rarely-set",
-            coverage=0.1,
-            is_multivalued=False,
-            value_types={"literal": 10},
+            covered_subject_count=95,
+            distinct_value_basis="uri",
+            distinct_value_count=3,
+            label_cardinality_ratio=3 / 95,
         ),
     ]
 
-    candidates = suggest_label_candidates(predicates, min_coverage=0.5)
+    candidates = suggest_label_candidates(predicates)
 
-    assert [p.predicate_uri for p in candidates] == ["http://ex/title", "http://ex/dblp-id"]
+    assert [p.predicate_uri for p in candidates] == ["http://ex/inScheme"]
+
+
+def test_suggest_label_candidates_excludes_constant_single_value_predicate():
+    # dc:terms:createdが全インスタンスで同一値(例: 収集日時スタンプ)を持つ場合、
+    # カーディナリティ比は最小(0に近い)になるが、分類ラベルとしては無意味なので除外されるべき。
+    constant_valued = PredicateProfile(
+        "http://ex/harvestedAt",
+        coverage=1.0,
+        is_multivalued=False,
+        covered_subject_count=200,
+        distinct_value_basis="literal",
+        distinct_value_count=1,
+        label_cardinality_ratio=1 / 200,
+    )
+    real_category = PredicateProfile(
+        "http://ex/genre",
+        coverage=0.8,
+        is_multivalued=False,
+        covered_subject_count=160,
+        distinct_value_basis="uri",
+        distinct_value_count=4,
+        label_cardinality_ratio=4 / 160,
+    )
+
+    candidates = suggest_label_candidates([constant_valued, real_category])
+
+    assert [p.predicate_uri for p in candidates] == ["http://ex/genre"]
+
+
+def test_suggest_label_candidates_ignores_predicates_with_no_cardinality():
+    predicates = [
+        PredicateProfile(
+            predicate_uri="http://ex/altLabel",
+            coverage=0.9,
+            is_multivalued=True,
+            covered_subject_count=90,
+            distinct_value_basis="none",
+            distinct_value_count=0,
+            label_cardinality_ratio=None,
+        ),
+    ]
+
+    assert suggest_label_candidates(predicates) == []
+
+
+def test_suggest_label_candidates_sorts_by_cardinality_ratio_ascending():
+    high_cardinality = PredicateProfile(
+        "http://ex/loose",
+        coverage=0.9,
+        is_multivalued=False,
+        covered_subject_count=100,
+        distinct_value_basis="uri",
+        distinct_value_count=40,
+        label_cardinality_ratio=0.4,
+    )
+    low_cardinality = PredicateProfile(
+        "http://ex/tight",
+        coverage=0.6,
+        is_multivalued=False,
+        covered_subject_count=100,
+        distinct_value_basis="uri",
+        distinct_value_count=5,
+        label_cardinality_ratio=0.05,
+    )
+
+    candidates = suggest_label_candidates([high_cardinality, low_cardinality])
+
+    assert [p.predicate_uri for p in candidates] == ["http://ex/tight", "http://ex/loose"]
 
 
 def test_suggest_feature_candidates_filters_by_min_coverage():
@@ -137,13 +283,20 @@ def test_suggest_feature_candidates_filters_by_min_coverage():
 
 def test_render_profile_markdown_includes_required_sections():
     candidates = [ClassCandidate(class_uri="http://ex/Paper", count=100)]
-    from rdf2graph.sparql.profiler import ClassProfile
-
     profile = ClassProfile(
         class_candidate=candidates[0],
         sample_size=10,
         predicates=[
-            PredicateProfile("http://ex/title", coverage=0.9, is_multivalued=False, value_types={"literal": 9}),
+            PredicateProfile(
+                "http://ex/title",
+                coverage=0.9,
+                is_multivalued=False,
+                value_types={"literal": 9},
+                covered_subject_count=9,
+                distinct_value_basis="literal",
+                distinct_value_count=9,
+                label_cardinality_ratio=1.0,
+            ),
         ],
     )
 
@@ -160,6 +313,7 @@ def test_render_profile_markdown_includes_required_sections():
     assert "特徴量候補プロパティ" in markdown
     assert "http://ex/Paper" in markdown
     assert "http://ex/title" in markdown
+    assert "全体 100 件中 10 件をサンプリング" in markdown
 
 
 def test_render_profile_markdown_warns_when_fewer_classes_than_requested():
@@ -172,3 +326,37 @@ def test_render_profile_markdown_warns_when_fewer_classes_than_requested():
     )
 
     assert "1件のみ" in markdown
+
+
+def test_render_profile_markdown_flags_multivalued_rdf_type_as_subtype_hypothesis():
+    from rdf2graph.sparql.profiler import RDF_TYPE_URI
+
+    candidates = [ClassCandidate(class_uri="http://ex/Publication", count=8_625_948)]
+    profile = ClassProfile(
+        class_candidate=candidates[0],
+        sample_size=200,
+        predicates=[
+            PredicateProfile(
+                RDF_TYPE_URI,
+                coverage=1.0,
+                is_multivalued=True,
+                value_types={"uri": 400},
+                covered_subject_count=200,
+                distinct_value_basis="uri",
+                distinct_value_count=2,
+                label_cardinality_ratio=2 / 200,
+                value_histogram={"http://ex/Inproceedings": 120, "http://ex/Article": 80},
+            ),
+        ],
+    )
+
+    markdown = render_profile_markdown(
+        endpoint_name="Test Endpoint",
+        endpoint_url="https://example.org/sparql",
+        class_candidates=candidates,
+        class_profiles=[profile],
+        requested_class_limit=20,
+    )
+
+    assert "サブタイプ由来のラベル候補" in markdown
+    assert "http://ex/Inproceedings" in markdown
