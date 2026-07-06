@@ -1,0 +1,22 @@
+# rdf2graph 依存関係
+#
+# torch: CUDAビルドはここでは指定しない。GPU環境でのインストール手順（--index-url指定）は
+#   README.md に記載する。GPU無し環境では PyPI 既定の CPU ビルドがそのままインストールされ、
+#   CLAUDE.md 決定事項#7 のCPUフォールバックとして機能する。
+# torch_geometric>=2.5: torch-scatter / torch-sparse / pyg-lib は意図的に含めていない。
+#   これらは torch/CUDA の組み合わせごとにビルド済み wheel を配布しており、新しい torch
+#   リリースに対応する wheel が無い場合、Windows 上でのソースビルドが不安定になりやすい。
+#   torch_geometric>=2.5 の RGCNConv は純 PyTorch フォールバックで動作し、これで代替できる
+#   ことは tests/test_rgcn_smoke.py で本プロジェクトの想定規模（ノード15,000/エッジ100,000
+#   相当）の forward/backward を実際に通して検証している。このテストが将来失敗する、または
+#   実用上遅すぎると判明した場合は torch-scatter/torch-sparse の追加導入を再検討すること。
+rdflib>=7.0
+SPARQLWrapper>=2.0
+torch
+torch_geometric>=2.5
+pandas>=2.0
+scikit-learn>=1.3
+pytest>=8.0
+pytest-mock>=3.12
+pyyaml>=6.0
+matplotlib>=3.8

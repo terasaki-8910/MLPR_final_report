@@ -7,6 +7,9 @@ data/*
 # 仮想環境を無視
 ml_env/
 
+# pip editable install のビルド成果物を無視
+*.egg-info/
+
 # texの生成ファイルを無視
 *.aux
 *.log

@@ -1,0 +1,26 @@
+# DBLP (計算機科学文献の書誌データ) 設定ファイル。
+# Phase 2のスキーマ偵察結果 (docs/profile_dblp.md) を見てから、下記をコメント解除・確定する。
+# 骨格は .claude/commands/build-lod-project.md Phase 3 を参照。
+#
+# endpoint: "https://sparql.dblp.org/sparql"
+# target_class: null  # Phase 2の発見結果（実際のクラスURI）で確定する。決め打ちしない。
+# sampling:
+#   max_nodes: 15000
+#   max_edges: 100000
+#   page_size: 500
+#   seed: 42
+# label:
+#   property: null  # Phase 2の発見結果（実際のプロパティURI）で確定する。
+#   top_k: 10
+#   unmatched_policy: "drop"
+# features:
+#   auto_discover: true
+#   min_coverage: 0.30
+#   max_properties: 20
+#   text_properties: []
+#   text_vectorizer: "hashing"
+# split:
+#   train: 0.7
+#   val: 0.15
+#   test: 0.15
+#   stratify: true
