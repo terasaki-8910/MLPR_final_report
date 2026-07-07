@@ -1,0 +1,476 @@
+%%%%%%%%%%%%%%%%% DO NOT CHANGE HERE %%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%{
+    \documentclass[twoside,11pt]{article}
+    %%%%% PACKAGES %%%%%%
+    \usepackage{pgm2016}
+    \usepackage{amsmath}
+    \usepackage{algorithm}
+    \usepackage[noend]{algpseudocode}
+    \usepackage{subcaption}
+    \usepackage[english]{babel}
+    \usepackage{paralist}
+    \usepackage[lowtilde]{url}
+    \usepackage{fixltx2e}
+    \usepackage{listings}
+    \usepackage{jlisting}
+    \usepackage{color}
+    \usepackage{hyperref}
+    \usepackage{auto-pst-pdf}
+    \usepackage{pst-all}
+    \usepackage{pstricks-add}
+    \usepackage{booktabs}
+
+    %%%%% MACROS %%%%%%
+    \algrenewcommand\Return{\State \algorithmicreturn{} }
+    \algnewcommand{\LineComment}[1]{\State \(\triangleright\) #1}
+    \renewcommand{\thesubfigure}{\roman{subfigure}}
+    \definecolor{codegreen}{rgb}{0,0.6,0}
+    \definecolor{codegray}{rgb}{0.5,0.5,0.5}
+    \definecolor{codepurple}{rgb}{0.58,0,0.82}
+    \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+    \lstdefinestyle{mystyle}{
+        backgroundcolor=\color{backcolour},
+        commentstyle=\color{codegreen},
+        keywordstyle=\color{magenta},
+        numberstyle=\tiny\color{codegray},
+        stringstyle=\color{codepurple},
+        basicstyle=\footnotesize\ttfamily,        breakatwhitespace=false,
+        breaklines=true,
+        captionpos=b,
+        keepspaces=true,
+        numbers=left,
+        numbersep=5pt,
+        showspaces=false,
+        showstringspaces=false,
+        showtabs=false,
+        tabsize=2
+    }
+    \lstset{style=mystyle, escapechar=@}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+
+%%%%%%%%%%%%%%%%%%%%%%%% CHANGE HERE %%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% {
+\newcommand\course{機械学習とパターン認識}
+\newcommand\courseName{最終レポート}
+\newcommand\semester{2026春AB}
+\newcommand\studentName{日野岡雅人}                  % <-- YOUR NAME
+\newcommand\studentEmail{s2621778@u.tsukuba.ac.jp}          % <-- YOUR EMAIL
+\newcommand\studentNumber{202621778}                % <-- STUDENT ID #
+\renewcommand{\figurename}{図}
+\renewcommand{\tablename}{表}
+
+% 全ページのフッタに表示するリポジトリURL。footer(出力ルーチン)内でも安全なように、
+% \url ではなく \texttt + エスケープ済みアンダースコアで定義する(catcode問題を回避)。
+\newcommand{\repourl}{{\ttfamily\scriptsize https://github.com/terasaki-8910/MLPR\_final\_report.git}}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%% DO NOT CHANGE HERE %%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%{
+
+    \ShortHeadings{筑波大学 -  \course ~~ \courseName}{\studentName - \studentNumber}
+    \firstpageno{1}
+
+    \begin{document}
+
+    \title{異種書誌LODへの汎用RDF→グラフ変換とR-GCNノード分類：\\クラス分離度の横断比較}
+
+    \author{\name \studentName \email \studentEmail \\
+    \studentNumber
+    \addr
+    }
+
+
+    \maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+
+% pgm2016.sty の \ShortHeadings が定義した pagestyle "pgmps" のフッタ(既定はページ番号のみ)を
+% 上書きし、ページ番号に加えてリポジトリURLを全ページに表示する。fancyhdr は使わず、既存機構が
+% 用いる \@oddfoot / \@evenfoot を直接再定義する(pagestyle pgmps は本文中で再発行されないため
+% この再定義が全ページに効く。twoside なので偶奇でページ番号とURLを左右反転させる)。
+\makeatletter
+\def\@oddfoot{{\repourl}\hfil{\rm\thepage}}%
+\def\@evenfoot{{\rm\thepage}\hfil{\repourl}}%
+\makeatother
+
+\section{目的}
+\label{sec:purpose}
+
+本レポートの目的は、\textbf{スキーマ・言語・ドメインが大きく異なる実世界の書誌／典拠 Linked Open
+Data（LOD）に対して、単一のRDF→グラフ変換パイプラインを設定ファイルの差し替えだけで適用し、同一の
+R-GCN（Relational Graph Convolutional Network）アーキテクチャでノード分類を行い、学習された埋め込み
+空間におけるクラス分離度をエンドポイント横断で比較すること}である。
+
+ここで本レポートの新規性がどこにあるかを、採点者に対して誠実に明示しておく必要がある。採用する
+モデルであるR-GCN~\citep{schlichtkrull2018modeling} には、モデルとしての新規性は一切ない。R-GCNは
+RDFナレッジグラフのノード分類における最も標準的な手法であり、原論文自体が AIFB・MUTAG・BGS・AM
+というRDFベンチマークで評価している。したがって「R-GCNをLODに応用した」こと自体を新規性として
+主張することはできず、これを隠して新規性があるかのように書けば、グラフニューラルネットワークや
+ナレッジグラフを少しでも知る読者には直ちに見抜かれる。
+
+そこで本レポートが主張する新規性は、モデル側ではなく\textbf{評価・分析側}に限定する。すなわち、
+(1) スキーマも言語もドメインも異なる複数の実世界LODを、エンドポイント固有のコードを一切書かずに
+設定ファイルだけで統一的に扱えるパイプラインを構成したこと、(2) その上で「クラスの分離しやすさ」を
+クラスセントロイド間コサイン類似度という単一の要約統計量で定量化し、エンドポイント横断で比較する
+分析軸を提示したこと、の2点である。地味だが具体的で検証可能な比較分析であることを主眼とする。
+
+\section{関連研究}
+\label{sec:related}
+
+本レポートが採用するR-GCN~\citep{schlichtkrull2018modeling} は、リレーションタイプごとに重み行列を
+持つグラフ畳み込みを用いて、多関係グラフ（RDF）上のノード分類やリンク予測を行う手法である。
+関係数が多い場合のパラメータ爆発を基底分解（basis decomposition）で抑える点が特徴である。本レポート
+はこのモデルをそのまま用い、モデルの新規性は主張しない。前述のとおり、R-GCNのRDFノード分類への
+適用は原論文がすでに標準的なベンチマークで行っている。
+
+RDFからグラフ機械学習用のデータセットを生成するという観点で本研究に最も近い先行研究は、
+AutoRDF2GML~\citep{farber2024autordf2gml} である。これはRDFから異種グラフ機械学習用データセットを
+半自動生成する枠組みであり、オントロジーに基づく特徴量抽出やエンティティ間関係の変換を扱う。本
+レポートは、これを性能比較の対象としてではなく、「本研究が簡易版として何を諦めたか」を説明する参照点
+として位置づける。具体的には、本研究はオントロジーアライメントやエンティティリンク（\texttt{owl:sameAs}
+の解決など）を明示的にスコープ外とし、各エンドポイントを独立したグラフとして扱う点で、
+AutoRDF2GMLよりも大幅に簡略である。
+
+\section{方法}
+\label{sec:method}
+
+\subsection{対象エンドポイントとスコープ}
+
+当初は書誌／典拠系の4エンドポイント（DBLP・NDL Web NDL Authorities・ICCU SBN・Cervantes Virtual）を
+対象に計画したが、提出期限の制約により、設定の確定作業まで完了していた次の2件に縮小した（縮小の理由は
+第\ref{sec:limitation}節で述べる）。両者を表\ref{tab:endpoints}に示す。NDLは書誌ノードを持たず、
+分類対象が典拠ノード自体である点で、書誌レコードを分類するDBLPとスキーマ概念が根本的に異なる。この
+異質性を、汎用パイプラインが設定変更のみで異なるスキーマに対応できることの実証に積極的に用いる。
+
+\begin{table}[t]
+\centering
+\caption{対象とした2エンドポイント。NDLは典拠ノード自体を、DBLPは書誌レコードを分類対象とする。}
+\label{tab:endpoints}
+\begin{tabular}{lll}
+\toprule
+項目 & NDL Web NDL Authorities & DBLP \\
+\midrule
+内容 & 日本語 主題・人物典拠 & 計算機科学文献 書誌 \\
+分類対象クラス & \texttt{skos:Concept} & \texttt{dblp:Publication} \\
+ラベル述語 & \texttt{skos:inScheme} & \texttt{dblp:bibtexType} \\
+言語 & 日本語 & 英語 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+分類対象クラスとラベル述語のURIは決め打ちしていない。(1) \texttt{?s a ?class} のインスタンス数集計に
+よるクラス発見、(2) 述語プロファイル（被覆率・値の型・カーディナリティ）、(3) ラベル候補述語の
+GROUP BY全数集計による分布検証、の3段階を経て確定した。特に(3)では、少数のサンプルによる述語
+プロファイルが物理格納順に強く相関した非ランダムな分布を返すことを実証した。例えばDBLPの
+\texttt{bibtexType} を200件サンプルすると Incollection が94\%を占めるが、全数集計による真の分布は
+Article 50.7\%・Inproceedings 45.4\%であり、両者は全く別物であった。この事実から、サンプル統計を
+分布推定に用いてはならないと結論し、ラベルの確定は全数集計に基づいて行った。
+
+\subsection{設定ファイル駆動のパイプライン}
+
+パイプラインは、SPARQL抽出、ラベル抽出、グラフ変換、モデル学習、評価の5段からなる。エンドポイント
+固有の値（対象クラス・ラベル述語・規模上限・特徴量に使う述語など）はすべて \texttt{configs/*.yaml}
+に外出しし、Pythonコード側にはif分岐を一切置かない。したがって新しいエンドポイントへの対応は設定
+ファイルの差し替えのみで完結する。本研究では、この主張を「同一コードのまま設定だけを差し替えて
+NDLとDBLPの双方でパイプラインが通ること」で実地に検証した。
+
+\subsection{ラベルの層化抽出}
+
+分類対象クラスのインスタンスを素朴に \texttt{LIMIT max\_nodes} で取得すると、前述の物理格納順バイアスが
+そのまま抽出結果に混入し、規模を1万5千件に増やしても偏りは解消されない。これを避けるため、全数集計で
+得た上位 \texttt{top\_k} 個のラベル値ごとの真の件数比に \texttt{max\_nodes} を按分し、ラベル値ごとに
+個別のクエリで抽出する層化抽出を採用した。これにより層間（ラベル間）の比率は全数集計の真の値に一致
+する。実装の中核をリスト\ref{lst:strat}に示す。なおNDLは、要求した \texttt{LIMIT} の値によらず1回の
+応答が最大1000行に無言で切り詰められるサーバ側の制約を持つため、各層の取得はページング（OFFSETを
+進めながら要求件数に達するまで取得）で行っている。
+
+\begin{lstlisting}[language=Python, caption={ラベル値ごとの層化抽出（\texttt{rdf2graph/convert/labels.py}）。全数集計の真の比率で按分し，層ごとにページングで取得する。}, label={lst:strat}]
+# 全数集計で得たtop-kラベル値ごとの真の件数比でmax_nodesを按分する
+label_values = count_label_values(client, config.target_class,
+                                  config.label.property,
+                                  limit=config.label.top_k)
+requested_per_class = _allocate_per_class(label_values,
+                                          config.sampling.max_nodes)
+
+assigned = {}  # uri -> label (頻度順で先着したものを保持)
+for value_count in label_values:            # 頻度降順
+    n = requested_per_class[value_count.value]
+    term = _value_term(value_count.value, value_count.value_type)
+    query_template = (
+        "SELECT ?s WHERE { "
+        f"?s a {iri(config.target_class)} . "
+        f"?s {iri(config.label.property)} {term} . "
+        "} LIMIT {limit} OFFSET {offset}")   # 末尾は非f文字列
+    # NDLのresult cap対策としてページングで要求件数nまで取得する
+    rows = client.paginate(query_template,
+                           page_size=config.sampling.page_size,
+                           max_total=n)
+    for row in rows:
+        assigned.setdefault(row["s"].value, value_count.value)
+\end{lstlisting}
+
+\subsection{グラフ変換とラベルリークの防止}
+
+取得した1-hopトリプルから、\texttt{edge\_type} 付き単一の \texttt{torch\_geometric.data.Data} を構築
+する。ノードは分類対象クラスのインスタンスと、それらと1-hopで接続する周辺エンティティからなる。
+エッジはオブジェクトプロパティ（値がURI型のもの）をリレーションタイプとして保持し、各リレーション
+について逆方向のリレーションを明示的に追加する（双方向メッセージパッシングのためのR-GCN標準前処理）。
+ノード特徴量は、構造特徴（次数とリレーションタイプ別の隣接数）に、ラベル／タイトル文字列の浅い
+テキスト特徴を連結したものである。テキストは文字$n$-gram（\texttt{char\_wb}, 2--4）のハッシング
+ベクトル化により128次元に落とす。文字$n$-gramを用いることで、分かち書きのない日本語も英語と同じ
+コードのまま処理でき、言語ごとの分岐を持たずに済む。
+
+ここで決定的に重要なのが、ラベルリークの防止である。ラベルの定義に用いた述語（NDLの
+\texttt{skos:inScheme}、DBLPの \texttt{dblp:bibtexType}）と \texttt{rdf:type} を、エッジおよび特徴量の
+自動発見から無条件で除外する。これらを残すと、モデルがグラフ構造からラベルをほぼ直接読み取れて
+しまう。特にDBLPでは、\texttt{rdf:type} が持つサブタイプ（\texttt{dblp:Inproceedings} など）が
+\texttt{bibtexType} とほぼ同一の分類情報を別語彙で重複表現しているため、除外しなければ事実上ラベルを
+二重に与えることになる。この除外はR-GCN原論文がAIFB／MUTAG等の前処理で「ラベル定義に使った関係を
+グラフから除去する」のと同じ標準的な慣行であり、場当たり的な措置ではない。実装をリスト\ref{lst:leak}
+に示す。
+
+\begin{lstlisting}[language=Python, caption={ラベルリーク防止（\texttt{rdf2graph/convert/graph\_builder.py}）。label.propertyとrdf:typeを除外し，被覆率でエッジ述語を選ぶ。}, label={lst:leak}]
+# ラベル定義に使ったlabel.propertyとrdf:typeを無条件除外(ラベルリーク防止)
+exclude = {config.label.property, RDF_TYPE_URI}
+
+def _select_edge_predicates(triples, total_target_nodes, exclude,
+                            min_coverage, max_properties):
+    subjects_by_predicate = defaultdict(set)
+    for subject, predicate, obj in triples:
+        if predicate in exclude or obj.type != "uri":  # 除外述語とnon-URI値を弾く
+            continue
+        subjects_by_predicate[predicate].add(subject)
+    coverage = {p: len(s) / total_target_nodes
+                for p, s in subjects_by_predicate.items()}
+    eligible = [p for p, c in coverage.items() if c >= min_coverage]
+    eligible.sort(key=lambda p: coverage[p], reverse=True)
+    return eligible[:max_properties]
+\end{lstlisting}
+
+\subsection{モデルとベースライン}
+
+R-GCNは、\texttt{RGCNConv} を2層重ね、その出力（埋め込み）を線形分類ヘッドに通す構成とした
+（リスト\ref{lst:rgcn}）。埋め込みと分類ロジットを明確に分離し、\texttt{embed} が返す最終分類層直前の
+出力を、後述するクラス分離度の算出に用いる。関係数が少ないエンドポイントでも
+\texttt{num\_bases} が関係数を超えないよう、基底数は関係数と上限値の小さい方に設定している。
+
+これを2つのベースラインと比較する。第一に多数派クラスベースライン（学習集合で最頻のクラスを常に
+予測する）であり、精度の下限を与える。第二に特徴量のみベースラインであり、グラフ構造（エッジ）を
+一切用いず、ノード特徴量だけでロジスティック回帰を行う。後者は本研究の切り分けの要である。これが
+なければ、R-GCNの精度がグラフ構造に由来するのか、単にノード特徴量が強いだけなのかを判別できない。
+両ベースラインは無条件で実装し、性能改善の工夫は加えない。
+
+\begin{lstlisting}[language=Python, caption={R-GCN分類器（\texttt{rdf2graph/models/rgcn.py}）。embedが分類ヘッド直前の埋め込みを返し，クラス分離度の算出に使う。}, label={lst:rgcn}]
+class RGCNClassifier(nn.Module):
+    def __init__(self, in_channels, hidden_channels,
+                 num_relations, num_classes, dropout=0.3):
+        super().__init__()
+        num_bases = min(num_relations, MAX_NUM_BASES)
+        self.conv1 = RGCNConv(in_channels, hidden_channels,
+                              num_relations=num_relations, num_bases=num_bases)
+        self.conv2 = RGCNConv(hidden_channels, hidden_channels,
+                              num_relations=num_relations, num_bases=num_bases)
+        self.classifier = nn.Linear(hidden_channels, num_classes)
+        self.dropout = dropout
+
+    def embed(self, x, edge_index, edge_type):
+        h = F.relu(self.conv1(x, edge_index, edge_type))
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        h = F.relu(self.conv2(h, edge_index, edge_type))
+        return h  # 分類ヘッド直前の埋め込み(クラス分離度の算出に使う)
+
+    def forward(self, x, edge_index, edge_type):
+        embeddings = self.embed(x, edge_index, edge_type)
+        logits = self.classifier(
+            F.dropout(embeddings, p=self.dropout, training=self.training))
+        return logits, embeddings
+\end{lstlisting}
+
+\subsection{クラスセントロイド間コサイン類似度}
+\label{sec:cossim}
+
+本研究の主眼である比較指標を定義する。学習済みR-GCNが各分類対象ノード$i$に与える埋め込みを
+$h_i \in \mathbb{R}^d$、そのラベルを $y_i \in \{1,\dots,C\}$ とする。クラス$c$のセントロイド（平均
+ベクトル）を式\eqref{eq:centroid}で定める。ここで $S_c = \{ i : y_i = c \}$ である。
+
+\begin{equation}
+\label{eq:centroid}
+\mu_c = \frac{1}{|S_c|} \sum_{i \in S_c} h_i
+\end{equation}
+
+クラスペア $(c, c')$ 間のコサイン類似度を $s_{cc'} = \dfrac{\mu_c \cdot \mu_{c'}}{\lVert \mu_c \rVert \, \lVert \mu_{c'} \rVert}$ とし、対角を除く上三角の平均を、そのエンドポイントの分離度の要約統計量とする
+（式\eqref{eq:sep}）。
+
+\begin{equation}
+\label{eq:sep}
+\bar{s} = \frac{2}{C(C-1)} \sum_{c < c'} s_{cc'}
+\end{equation}
+
+$\bar{s}$ が低いほど、クラスのセントロイドが埋め込み空間上で互いに離れており、そのデータセットの
+クラスはよく分離している。各エンドポイントは独立に学習し、ラベル空間も共有しないため、埋め込み
+ベクトルそのものを横断比較することはできない。そこで本研究では、この要約統計量 $\bar{s}$ 自体を
+エンドポイント間で比較する。評価指標は $\bar{s}$ に加えて macro-F1・balanced accuracy・混同行列を
+用い、データ分割は train 0.7／val 0.15／test 0.15 の層化分割、乱数シードは42で固定した。
+
+\section{結果と考察}
+\label{sec:result}
+
+数値は学習・評価スクリプトの出力（RTX 5070 Ti／CUDA、シード42）に基づく。構築されたグラフの規模は、
+NDLが分類対象1万5千ノード（1-hop隣接を含む総ノード数4万2545、エッジ5万5112、リレーション4種）、
+DBLPが分類対象1万5千ノード（総ノード数4万7149、エッジ10万〈上限による間引き後〉、リレーション20種）
+である。層化抽出後のラベル分布を図\ref{fig:labeldist}に示す。NDLは最頻クラスの personalNames が
+70.5\%を占める強い不均衡を示し、DBLPは Article 51.0\%・Inproceedings 45.4\%の2クラスで大半を占める。
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/labeldist-ndl.png}
+    \caption{NDL}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/labeldist-dblp.png}
+    \caption{DBLP}
+  \end{subfigure}
+  \caption{層化抽出後のラベル分布。層間比率は全数集計の真の値に一致する。両データセットとも裾の
+  クラスは極端に少ない。}
+  \label{fig:labeldist}
+\end{figure}
+
+\subsection{分類精度}
+
+モデル別の精度を表\ref{tab:acc}に示す。最も重要かつ誠実に報告すべき所見は、\textbf{両エンドポイント
+とも、グラフ構造を一切用いない特徴量のみベースラインがR-GCNを上回った}ことである（NDLで 0.788 対
+0.738、DBLPで 0.582 対 0.523）。これは失敗ではなく、まさにこのベースラインを無条件で置いた理由が
+機能した結果である。両ベースラインを併置したことで、次の切り分けが可能になった。多数派ベースライン
+（macro-F1でNDL 0.166、DBLP 0.135）に対してはR-GCN・特徴量のみとも大きく上回るため、両データセット
+とも分類可能な信号は確かに存在する。しかしその信号はノード自身の特徴量、すなわちラベル／タイトル
+文字列の文字$n$-gramにほぼ尽きており、リレーション構造を加えても精度は向上しない。むしろR-GCNでは
+近傍集約が局所的な文字列信号をわずかに希釈し、精度を下げている。
+
+\begin{table}[t]
+\centering
+\caption{モデル別の分類精度（test split，シード42）。両データセットとも特徴量のみベースラインが
+R-GCNを上回った。}
+\label{tab:acc}
+\begin{tabular}{llccc}
+\toprule
+データセット & モデル & macro-F1 & balanced acc & 学習時間 (s) \\
+\midrule
+NDL  & R-GCN                    & 0.7382 & 0.7490 & 1.77 \\
+NDL  & 多数派                   & 0.1655 & 0.2000 & 0.00 \\
+NDL  & 特徴量のみ (LogReg)      & \textbf{0.7881} & \textbf{0.7738} & 0.45 \\
+\midrule
+DBLP & R-GCN                    & 0.5231 & 0.5214 & 3.56 \\
+DBLP & 多数派                   & 0.1351 & 0.2000 & 0.00 \\
+DBLP & 特徴量のみ (LogReg)      & \textbf{0.5821} & \textbf{0.5548} & 2.20 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+この所見はデータの性質と整合的である。NDLでは典拠概念どうしがほとんど相互リンクを持たず、大半は
+VIAFや別エンティティといった外部ノードへ次数1で接続し、分類対象1万5千件のうち1123件は完全に孤立
+していた。「典拠の種別（人名か地名か団体か）」は、名前の表層形にほぼ現れるため、リンク構造から追加
+で得られる情報は乏しい。DBLPでも「書誌タイプ（Article か Inproceedings か）」はタイトルや掲載情報の
+文字列パターンに強く現れる。すなわち、\textbf{この2つの書誌ノード分類タスクでは、識別信号はノード
+自身のテキストに宿り、リンク構造には乏しい}というのが、比較分析から得られた具体的な知見である。
+なお混同行列を確認すると、両データセットとも最小クラス（NDLの uniformTitles、DBLPの Phdthesis や
+Incollection）はほぼすべて多数側クラスへ誤分類されており、これはラベルが捉える裾クラスの極端な
+不均衡をそのまま反映している。R-GCNを勝たせるためのモデル調整（層数やドロップアウトの探索）は、
+この所見を歪めるため意図的に行っていない。
+
+\subsection{クラス分離度の横断比較}
+
+本研究の主眼であるクラス分離度の比較を表\ref{tab:sep}に、クラスペアごとのコサイン類似度ヒートマップ
+を図\ref{fig:heat}に示す。クラス間平均コサイン類似度は、NDL（0.384）の方がDBLP（0.457）より低く、
+NDLの方がクラスが埋め込み空間上でよく分離している。これはNDLの方がR-GCNのmacro-F1が高い（0.738 対
+0.523）ことと整合する。すなわち、埋め込み空間上のクラスセントロイド分離という内在的な指標が、実際の
+分類しやすさという外在的な指標と同じ向きを指しており、$\bar{s}$ がデータセット横断の「クラスの分離
+しやすさ」の要約として機能していることを支持する。
+
+\begin{table}[t]
+\centering
+\caption{クラス分離度の横断比較。$\bar{s}$（クラス間平均コサイン類似度）が低いほどよく分離している。}
+\label{tab:sep}
+\begin{tabular}{lccc}
+\toprule
+データセット & クラス数 & クラス間平均コサイン類似度 $\bar{s}$ & R-GCN macro-F1 \\
+\midrule
+NDL  & 5 & \textbf{0.3837} & 0.7382 \\
+DBLP & 5 & 0.4566 & 0.5231 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/classsep-ndl.png}
+    \caption{NDL}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figures/classsep-dblp.png}
+    \caption{DBLP}
+  \end{subfigure}
+  \caption{クラスセントロイド間コサイン類似度のヒートマップ。対角は1、値が小さい（青い）ほどクラス
+  が離れている。}
+  \label{fig:heat}
+\end{figure}
+
+ただし、この2値の単純な大小比較は慎重に扱う必要がある。両データセットはクラス数こそ同じ5であるが、
+不均衡度・言語・スキーマ・リレーション数（NDL 4種に対しDBLP 20種）が大きく異なる。したがって「NDLの
+方が普遍的に分類しやすい」と一般化するのではなく、「本パイプラインのこの設定の下で、NDLの典拠種別
+クラスはDBLPの書誌タイプクラスより埋め込み空間上でよく分離した」という限定された主張にとどめる。
+
+\subsection{コスト}
+
+学習・推論はいずれもGPU上で軽量であり、R-GCNの学習時間はNDLで1.8秒、DBLPで3.6秒、推論は20ミリ秒
+前後、学習時ピークGPUメモリはNDLで約250MB、DBLPで約948MBであった。支配的なコストは学習ではなく
+SPARQL抽出であり、1-hopプロパティの取得はNDLで約58秒、DBLPで約1036秒（約17分）を要した。これは
+DBLPが1書誌あたりの述語数が多く、かつGETのURL長上限に収めるため対象URIを60件ずつに分割して取得
+したことで往復回数が増えたためである。グラフ構築自体は両者とも1秒前後であり、抽出時間が規模に対して
+支配的というスケーリング傾向が確認できる。抽出結果はディスクにキャッシュされるため、再実行時の
+コストはゼロに近い。
+
+\section{限界と今後の課題}
+\label{sec:limitation}
+
+第一に、対象を2エンドポイントに縮小したことである。ICCU SBNとCervantes Virtualは、ラベル候補述語の
+全数集計により追加のデータ品質問題が判明していた。ICCU SBNでは件数が完全に一致する異表記の
+エイリアスTopic URIが多数存在し、上位50値を合わせても分類対象全体の5.1\%しか被覆しなかった。
+Cervantes Virtualでは主題リテラルの最頻値が空文字列であり、被覆率も低かった。これらへの対応が提出
+期限までに完了しなかったため見送った。当初「異種スキーマ4件の横断比較」を掲げた本研究にとって、
+比較対象が2件に減ったことは主眼である横断比較の説得力を弱める最大の限界である。
+
+第二に、グラフ構造が精度に寄与しなかったことである。両データセットで特徴量のみベースラインがR-GCNを
+上回った事実は、「書誌ノードのタイプ分類」というタスク選択に対してリレーション構造の追加情報が乏しか
+ったことを意味する。R-GCNの利点を引き出すには、ノード自身のテキストでは解けない別のラベル、例えば
+共著・引用ネットワークの構造に依存する研究分野や主題カテゴリを分類対象に選ぶべきだった可能性がある。
+ラベル選定を全数集計の健全性のみで判断し、「グラフ構造で解けるタスクか」という観点を欠いていたこと
+は、設計上の反省点である。
+
+第三に、層化抽出は層間の比率を全数集計の真の値に一致させるものの、層内（同一ラベル値内）の抽出順序は
+サーバの既定順に依存しており、真の一様ランダムではない。この層内順序バイアスは残存する。加えて、変換
+時間のスケーリング曲線（\texttt{max\_nodes} を変化させた測定）は時間の制約から実施できず、固定規模での
+抽出・構築時間の内訳のみを記録した。最後に、グラフ構造のロバスト性（エッジ削除耐性）、スケールアウト
+性、人為的にクラス不均衡を操作した頑健性評価は、いずれも時間の制約により意図的に評価軸から外した。
+これらは今後の課題である。
+
+\section*{付録}
+
+本プロジェクトの実装（RDF→グラフ変換パイプラインおよびR-GCN・ベースラインの学習・評価コード）には、
+コーディング支援としてClaude Code（使用モデル: Claude Opus 4.8）を用いた。
+
+%% HERE IS WHERE THE REFERENCES IS INCLUDED
+\vskip 0.2in
+\bibliography{references/references}
+
+\end{document}

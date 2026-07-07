@@ -75,50 +75,116 @@ configs/*.yaml
 
 ## 実行方法（教員の再現手順）
 
-外部API・課金サービスに一切依存しない。公開SPARQLエンドポイントとローカル環境のみで完結する
-（GPUは任意。無い環境では自動でCPUにフォールバックする）。
+外部API・課金サービスに一切依存しない。公開SPARQLエンドポイントとローカル環境のみで完結する。
+以下は新規に `git clone` した状態から `docs/results_*.md`・`docs/class_separation_summary.md` を
+再現するまでを、一切の省略なく順に追える手順である。
+
+**前提**: Python 3.10 以上（`setup.py` の `python_requires=">=3.10"`）、`git`。GPU は任意で、
+無い環境では学習・推論が自動で CPU にフォールバックする（`CLAUDE.md` 決定事項#7・#11）。
+
+### 手順0: 取得
 
 ```bash
-# 1. 仮想環境の構築（GPUがある場合のCUDA版torch導入手順は下記「GPU環境」を参照）
-python -m venv ml_env
-# Linux/WSL:  source ml_env/bin/activate
-# Windows:    ml_env\Scripts\activate
-pip install -e .
-
-# 2. テスト（ネットワーク不要でパスする）
-pytest -m "not slow"
-
-# 3. スキーマ偵察・ラベル分布検証（結果は data/raw/ にキャッシュされる。docs/profile_*.md を生成）
-python scripts/run_profiler.py
-python scripts/run_label_census.py
-
-# 4. ラベル抽出とラベル分布の可視化（docs/label_distribution_*.png を生成）
-python scripts/run_label_extraction.py
-
-# 5. RDF→グラフ変換（data/processed/<key>/graph.pt を生成）
-python scripts/run_graph_conversion.py
-
-# 6. 学習・評価（docs/results_*.md, docs/class_separation_*.png,
-#    docs/class_separation_summary.md を生成）
-python scripts/run_training_eval.py
+git clone https://github.com/terasaki-8910/MLPR_final_report.git
+cd MLPR_final_report
 ```
 
-`configs/dblp.yaml` と `configs/ndl_authorities.yaml` は確定済みで、手順3〜6は**同じコードのまま
-両エンドポイントに対して順に実行される**。エンドポイント固有の Python コードは存在しない
-（`CLAUDE.md` アーキテクチャ原則#1）。
+### 手順1: 仮想環境の作成と有効化
 
-### GPU環境（任意）
+```bash
+python -m venv ml_env
+```
 
-開発機（RTX 5070 Ti / CUDA）では CUDA 版 torch を明示的に導入した:
+有効化コマンドは OS で異なる。
+
+```bash
+# Linux / macOS / WSL:
+source ml_env/bin/activate
+
+# Windows (PowerShell / コマンドプロンプト):
+ml_env\Scripts\activate
+```
+
+### 手順2: 依存関係のインストール
+
+GPU が無い環境では、そのまま以下だけでよい（`requirements.txt` の無指定 `torch` により PyPI 既定の
+CPU ビルドが入る）。
+
+```bash
+pip install -e .
+```
+
+**GPU（CUDA）を使う場合のみ**、`pip install -e .` の前に CUDA 版 torch を明示導入する。開発機
+（RTX 5070 Ti / CUDA 12.8）では次を用いた。`--index-url` を付けないと CPU ビルドが入るため、
+GPU を使うにはこの一手が必須である（決定事項#11）。
 
 ```bash
 pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 pip install -e .
 ```
 
-GPU が無い環境では `requirements.txt` の無指定 `torch` により PyPI 既定の CPU ビルドが入り、
-学習・推論は自動で CPU にフォールバックする（`CLAUDE.md` 決定事項#7・#11）。`torch-scatter` /
-`torch-sparse` / `pyg-lib` は意図的に含めていない（決定事項#12）。
+なお `torch-scatter` / `torch-sparse` / `pyg-lib` は意図的に含めていない。`torch_geometric` の
+`RGCNConv` は純 PyTorch フォールバックで動作するため不要である（決定事項#12）。
+
+### 手順3: テスト（ネットワーク不要）
+
+```bash
+pytest -m "not slow"
+```
+
+`-m "not slow"` で GPU スモークテストを除外する。ネットワーク接続なしで全 68 件が通れば、
+パッケージのインストールと中核ロジックは健全である。
+
+### 手順4以降: パイプラインの実行
+
+以下は上から順に実行する。各スクリプトの結果は `data/raw/` にキャッシュされるため、途中で
+中断しても再実行時は既取得分のネットワークアクセスが発生しない（アーキテクチャ原則#2）。
+`configs/dblp.yaml`・`configs/ndl_authorities.yaml` は確定済みで、これらのスクリプトは**同じ
+コードのまま両エンドポイントに順に適用される**（エンドポイント固有の Python コードは存在しない、
+アーキテクチャ原則#1）。
+
+```bash
+python scripts/run_profiler.py        # 手順4
+python scripts/run_label_census.py    # 手順5
+python scripts/run_label_extraction.py  # 手順6
+python scripts/run_graph_conversion.py  # 手順7
+python scripts/run_training_eval.py     # 手順8
+```
+
+- **手順4 `run_profiler.py`** — スキーマ偵察（クラス発見＋述語プロファイル）。生成物: `docs/profile_*.md`。
+  ネットワーク: **要**（各エンドポイントへ集計クエリを送る）。所要時間: 数分程度（キャッシュ済みなら数秒）。
+  Phase 2 の産物であり `docs/profile_*.md` は既にリポジトリに含まれるため、結果の再現だけが目的なら
+  再実行は任意。なお本スクリプトは当初計画の4エンドポイント全てを対象にするため、スコープ外の
+  ICCU SBN・Cervantes Virtual にもアクセスする（応答が遅い場合がある）。
+- **手順5 `run_label_census.py`** — ラベル候補述語の GROUP BY 全数集計による分布検証（決定事項#20）。
+  生成物: 各 `docs/profile_*.md` への「全数集計によるラベル候補検証」節の追記。ネットワーク: **要**。
+  所要時間: 数分程度（キャッシュ済みなら数秒）。手順4同様、再現だけが目的なら再実行は任意。
+- **手順6 `run_label_extraction.py`** — 確定済み config に基づくラベル層化抽出とクラス分布の可視化。
+  生成物: `docs/label_distribution_ndl_authorities.png`・`docs/label_distribution_dblp.png`。
+  ネットワーク: **要**（NDL・DBLP のみ）。所要時間: 合わせて 1〜2 分程度（キャッシュ済みなら数秒）。
+- **手順7 `run_graph_conversion.py`** — RDF→グラフ変換。生成物: `data/processed/<endpoint>/graph.pt`
+  と `meta.json`。ネットワーク: **要**（NDL・DBLP の1-hopプロパティを取得）。所要時間: **NDL は約1分、
+  DBLP は SPARQL 抽出だけで約17分**（DBLP は1書誌あたりの述語数が多く、GET のURL長上限に収めるため
+  60件ずつ分割取得するため。実測値は `docs/results_dblp.md` のコスト記録に基づく）。一度実行すれば
+  `data/raw/` のキャッシュにより再実行は数秒。
+- **手順8 `run_training_eval.py`** — R-GCN と2ベースラインの学習・評価。生成物: `docs/results_*.md`、
+  `docs/class_separation_*.png`、`docs/class_separation_summary.md`。ネットワーク: **不要**（手順7で
+  生成した `graph.pt` のみを読む）。所要時間: 両エンドポイント合わせて 1 分未満（GPU 時）。
+
+手順7以降だけを再現したい場合、`run_label_extraction.py`（手順6）は不要である。`run_graph_conversion.py`
+がラベル抽出を内部で呼び出すため、手順6を飛ばして手順7→手順8だけでも `docs/results_*.md` まで到達する
+（手順6は分布図の可視化のためのもの）。
+
+### 生成物の出力先
+
+上記を実行すると、以下が `docs/`・`data/processed/` に生成される（「成果物」節と重複）。
+
+- `docs/profile_{ndl_authorities,dblp,iccu_sbn,cervantes_virtual}.md` — スキーマ偵察・述語プロファイル・全数集計
+- `docs/label_distribution_{ndl_authorities,dblp}.png` — 層化抽出後のクラス分布
+- `data/processed/{ndl_authorities,dblp}/graph.pt` — 変換済みグラフ（`meta.json` も同梱）
+- `docs/results_{ndl_authorities,dblp}.md` — モデル×指標の比較表・混同行列・コスト
+- `docs/class_separation_{ndl_authorities,dblp}.png` — クラスセントロイド間コサイン類似度ヒートマップ
+- `docs/class_separation_summary.md` — エンドポイント横断のクラス分離度比較（本プロジェクトの主眼）
 
 ## 成果物
 
