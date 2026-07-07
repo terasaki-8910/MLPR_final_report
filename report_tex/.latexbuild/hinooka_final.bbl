@@ -7,12 +7,16 @@
 
 \bibitem[F{\"a}rber et~al.(2024)]{farber2024autordf2gml}
 Michael F{\"a}rber et~al.
-\newblock {AutoRDF2GML}: Facilitating {RDF} integration in graph machine learning.
+\newblock {AutoRDF2GML}: Facilitating {RDF} integration in graph machine
+  learning.
 \newblock In \emph{The Semantic Web -- ISWC 2024}. Springer, 2024.
 
-\bibitem[Schlichtkrull et~al.(2018)Schlichtkrull, Kipf, Bloem, van~den Berg, Titov, and Welling]{schlichtkrull2018modeling}
-Michael Schlichtkrull, Thomas~N. Kipf, Peter Bloem, Rianne van~den Berg, Ivan Titov, and Max Welling.
+\bibitem[Schlichtkrull et~al.(2018)Schlichtkrull, Kipf, Bloem, van~den Berg,
+  Titov, and Welling]{schlichtkrull2018modeling}
+Michael Schlichtkrull, Thomas~N. Kipf, Peter Bloem, Rianne van~den Berg, Ivan
+  Titov, and Max Welling.
 \newblock Modeling relational data with graph convolutional networks.
-\newblock In \emph{The Semantic Web -- ESWC 2018}, pages 593--607. Springer, 2018.
+\newblock In \emph{The Semantic Web -- ESWC 2018}, pages 593--607. Springer,
+  2018.
 
 \end{thebibliography}

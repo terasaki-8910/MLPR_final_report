@@ -15,15 +15,9 @@ ml_env/
 *.log
 *.out
 *.dvi
-*.fls
-*.fdb_latexmk
 
 # 他の授業ディレクトリ
 other_courses/
 
 # macOSのメタデータファイル
 .DS_Store
-
-# pycacheを無視
-__pycache__/
-*/__pycache__/*

@@ -15,8 +15,6 @@ ml_env/
 *.log
 *.out
 *.dvi
-*.fls
-*.fdb_latexmk
 
 # 他の授業ディレクトリ
 other_courses/

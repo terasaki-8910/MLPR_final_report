@@ -227,15 +227,15 @@ for value_count in label_values:            # 頻度降順
 ノード特徴量は、構造特徴（次数とリレーションタイプ別の隣接数）に、ラベル・タイトル文字列の浅い
 テキスト特徴を連結したものである。テキストは文字$n$-gram（\texttt{char\_wb}, 2--4）のハッシング
 ベクトル化により128次元に落とす。文字$n$-gramを用いることで、分かち書きのない日本語も英語と同じ
-コードのまま処理でき、言語ごとの分岐を持たずに済ませる。
+コードのまま処理でき、言語ごとの分岐を持たずに済む。
 
-ここで重要なのが、ラベルリークの防止である。ラベルの定義に用いた述語（NDLの
+ここで決定的に重要なのが、ラベルリークの防止である。ラベルの定義に用いた述語（NDLの
 \texttt{skos:inScheme}、DBLPの \texttt{dblp:bibtexType}）と \texttt{rdf:type} を、エッジおよび特徴量の
 自動発見から無条件で除外する。これらを残すと、モデルがグラフ構造からラベルをほぼ直接読み取れて
 しまう。特にDBLPでは、\texttt{rdf:type} が持つサブタイプ（\texttt{dblp:Inproceedings} など）が
 \texttt{bibtexType} とほぼ同一の分類情報を別語彙で重複表現しているため、除外しなければ事実上ラベルを
 二重に与えることになる。この除外はR-GCN原論文がAIFB・MUTAG等の前処理で「ラベル定義に使った関係を
-グラフから除去する」のと同じ標準的な慣行であり、場当たり的な措置ではないをここに記す。実装をリスト\ref{lst:leak}
+グラフから除去する」のと同じ標準的な慣行であり、場当たり的な措置ではない。実装をリスト\ref{lst:leak}
 に示す。
 
 \begin{lstlisting}[language=Python, caption={ラベルリーク防止（\texttt{rdf2graph/convert/graph\_builder.py}）。label.propertyとrdf:typeを除外し、被覆率でエッジ述語を選ぶ。}, label={lst:leak}]
