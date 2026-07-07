@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from SPARQLWrapper import JSON, SPARQLWrapper
+from SPARQLWrapper import GET, JSON, POST, SPARQLWrapper
 from SPARQLWrapper.SPARQLExceptions import (
     EndPointNotFound,
     QueryBadFormed,
@@ -90,13 +90,20 @@ class SPARQLClient:
         timeout: float = 60.0,
         max_retries: int = 3,
         backoff_base: float = 2.0,
+        method: str = GET,
     ) -> None:
+        if method not in (GET, POST):
+            raise ValueError(f"method must be {GET!r} or {POST!r}, got {method!r}")
         self.endpoint = endpoint
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_base = backoff_base
+        # 既定はGET(Phase1からの既存動作を変えない)。Phase 4のgraph_builder.pyはVALUES句に
+        # 多数のURIを埋め込む大きなクエリを送るため、GETのURL長上限（SPARQLWrapperの
+        # URITooLong）を避けるためPOSTを明示的に指定して構築する。
+        self.method = method
 
     def query(self, query: str) -> list[dict[str, Binding]] | bool:
         """SELECT系はBindingの行リスト、ASK系はboolを返す。"""
@@ -218,6 +225,7 @@ class SPARQLClient:
         sparql.setQuery(query)
         sparql.setReturnFormat(JSON)
         sparql.setTimeout(int(self.timeout))
+        sparql.setMethod(self.method)
         try:
             response = sparql.query()
         except _NON_RETRYABLE_QUERY_ERRORS as exc:

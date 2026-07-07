@@ -172,3 +172,28 @@ def test_ask_query_returns_bool(tmp_path, mock_wrapper):
     result = client.query("ASK { ?s ?p ?o }")
 
     assert result is True
+
+
+def test_default_method_is_get(tmp_path, mock_wrapper):
+    mock_wrapper.query.return_value = FakeResponse(make_select_payload([{"s": "http://x/1"}]))
+    client = SPARQLClient("https://example.org/sparql", cache_dir=tmp_path)
+
+    client.query("SELECT ?s WHERE { ?s ?p ?o }")
+
+    mock_wrapper.setMethod.assert_called_once_with("GET")
+
+
+def test_method_can_be_overridden_to_post(tmp_path, mock_wrapper):
+    # Phase 4のgraph_builder.pyはVALUES句に多数のURIを埋め込む大きなクエリを送るため、
+    # GETのURL長上限を避けてPOSTを使う(CLAUDE.md参照)。
+    mock_wrapper.query.return_value = FakeResponse(make_select_payload([{"s": "http://x/1"}]))
+    client = SPARQLClient("https://example.org/sparql", cache_dir=tmp_path, method="POST")
+
+    client.query("SELECT ?s WHERE { ?s ?p ?o }")
+
+    mock_wrapper.setMethod.assert_called_once_with("POST")
+
+
+def test_invalid_method_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="method"):
+        SPARQLClient("https://example.org/sparql", cache_dir=tmp_path, method="PATCH")
