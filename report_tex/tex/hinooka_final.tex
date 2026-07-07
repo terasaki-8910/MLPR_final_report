@@ -1,6 +1,9 @@
 %%%%%%%%%%%%%%%%% DO NOT CHANGE HERE %%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%{
-    \documentclass[twoside,11pt]{article}
+    % dvipdfmx をドライバオプションとして明示する。platex+dvipdfmx のビルドで graphicx/color/
+    % hyperref に dvipdfmx ドライバを使わせ、PNG図(.xbb同梱)をネイティブ埋め込みするため
+    % (これが無いと graphics.cfg が dvips.def を選び、PNGを「no BoundingBox」で拒否する)。
+    \documentclass[dvipdfmx,twoside,11pt]{article}
     %%%%% PACKAGES %%%%%%
     \usepackage{pgm2016}
     \usepackage{amsmath}
@@ -15,9 +18,11 @@
     \usepackage{jlisting}
     \usepackage{color}
     \usepackage{hyperref}
-    \usepackage{auto-pst-pdf}
-    \usepackage{pst-all}
-    \usepackage{pstricks-add}
+    % 注: テンプレート(CS330.tex / hinooka_day8.tex)はPSTricks系(auto-pst-pdf, pst-all,
+    % pstricks-add)を読み込むが、本レポートはPSTricksの作図を一切使わない。これらを読み込むと
+    % graphicsドライバがdvipsに寄り、PNG図をEPSへ変換(ImageMagick)し更にdvipdfmxでの埋め込みに
+    % Ghostscriptが必要になる。本レポートはPNGをdvipdfmxでネイティブ埋め込みするため、未使用の
+    % PSTricks系3パッケージを外している(出力は不変、ビルド依存を削減)。
     \usepackage{booktabs}
 
     %%%%% MACROS %%%%%%
