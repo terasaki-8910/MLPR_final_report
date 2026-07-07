@@ -1,0 +1,35 @@
+# 全テキストファイルの改行をLFに統一
+* text=auto eol=lf
+
+# Pythonファイルを明示的にLF指定
+*.py text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+
+# バイナリファイルは変換しない
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.eps binary
+*.pdf binary
+*.gif binary
+*.ico binary
+*.zip binary
+
+# tex系ファイルもLF指定
+*.tex text eol=lf
+*.sty text eol=lf
+*.cls text eol=lf
+*.bib text eol=lf
+
+
+
+# Windows側で実行
+# git config --global core.autocrlf false
+# git config --global core.eol lf
