@@ -1,0 +1,241 @@
+%%%%%%%%%%%%%%%%% DO NOT CHANGE HERE %%%%%%%%%%%%%%%%%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%{
+    \documentclass[twoside,11pt]{article}
+    %%%%% PACKAGES %%%%%%
+    \usepackage{pgm2016}
+    \usepackage{amsmath}
+    \usepackage{algorithm}
+    \usepackage[noend]{algpseudocode}
+    \usepackage{subcaption}
+    \usepackage[english]{babel}	
+    \usepackage{paralist}	
+    \usepackage[lowtilde]{url}
+    \usepackage{fixltx2e}
+    \usepackage{listings}
+    \usepackage{jlisting}
+    \usepackage{color}
+    \usepackage{hyperref}
+    \usepackage{auto-pst-pdf}
+    \usepackage{pst-all}
+    \usepackage{pstricks-add}
+    \usepackage{booktabs}
+
+    %%%%% MACROS %%%%%%
+    \algrenewcommand\Return{\State \algorithmicreturn{} }
+    \algnewcommand{\LineComment}[1]{\State \(\triangleright\) #1}
+    \renewcommand{\thesubfigure}{\roman{subfigure}}
+    \definecolor{codegreen}{rgb}{0,0.6,0}
+    \definecolor{codegray}{rgb}{0.5,0.5,0.5}
+    \definecolor{codepurple}{rgb}{0.58,0,0.82}
+    \definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+    \lstdefinestyle{mystyle}{
+        backgroundcolor=\color{backcolour},
+        commentstyle=\color{codegreen},
+        keywordstyle=\color{magenta},
+        numberstyle=\tiny\color{codegray},
+        stringstyle=\color{codepurple},
+        basicstyle=\footnotesize,        breakatwhitespace=false,        
+        breaklines=true,                
+        captionpos=b,                    
+        keepspaces=true,                
+        numbers=left,                    
+        numbersep=5pt,                  
+        showspaces=false,                
+        showstringspaces=false,
+        showtabs=false,                  
+        tabsize=2
+    }
+    \lstset{style=mystyle, escapechar=@}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+
+%%%%%%%%%%%%%%%%%%%%%%%% CHANGE HERE %%%%%%%%%%%%%%%%%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% {
+\newcommand\course{機械学習とパターン認識}
+\newcommand\courseName{注意機構とTransformer}   % その回の内容を簡単に表すタイトル
+\newcommand\semester{2026春AB}
+\newcommand\assignmentNumber{8}                             % <-- ASSIGNMENT #
+\newcommand\studentName{日野岡雅人}                  % <-- YOUR NAME
+\newcommand\studentEmail{s2621778@u.tsukuba.ac.jp}          % <-- YOUR NAME
+\newcommand\studentNumber{202621778}                % <-- STUDENT ID #
+\renewcommand{\figurename}{図}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%% DO NOT CHANGE HERE %%%%%%%%%%%%%%%%%%%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%{
+
+    \ShortHeadings{筑波大学 -  \course ~~ \courseName}{\studentName - \studentNumber}
+    \firstpageno{1}
+    
+    \begin{document}
+    
+    \title{第\assignmentNumber 回課題}
+    
+    \author{\name \studentName \email \studentEmail \\
+    \studentNumber
+    \addr
+    }
+
+    
+    \maketitle
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% }
+
+\section{演習課題1}
+\begin{enumerate}
+    \item MultiNLIデータセットに対して、事前学習済みTransformerエンコーダモデルを用いた
+    テキスト分類器を学習・評価するプログラムを実行せよ。
+    \begin{itemize}
+        \item \texttt{bert-base-uncased}
+        \item \texttt{distilbert-base-uncased}
+        \item \texttt{google/electra-base-discriminator}
+    \end{itemize}
+    \item テスト正解率を報告し、事前学習済みモデルの効果を確認せよ。
+    \item RNNの精度とも比較して考察せよ。
+\end{enumerate}
+
+MultiNLIデータセット（3クラス：entailment / neutral / contradiction）を用いて、
+3種類の事前学習済みTransformerエンコーダモデルによるテキスト分類を実施した。
+訓練データの1/30サブセット（約13,000件）を使用し、10エポック学習した。
+
+\subsection*{実装}
+
+\texttt{ex\_day8\_Exercise1\_V2.py}における中心的な追加部分を以下に示す。
+% \texttt{AutoModel.from\_pretrained}で事前学習済みエンコーダを読み込み、
+% \texttt{freeze\_encoder=True}によりエンコーダの全重みを固定して最終線形層のみを学習する。
+% \texttt{forward}メソッドでは\texttt{last\_hidden\_state[:, 0, :]}により
+% [CLS]トークンの隠れ表現を取得して分類に使用する。
+
+\begin{lstlisting}[language=Python]
+class TransformerEncoderClassifier(nn.Module):
+    def __init__(self, pretrained_model, num_classes, freeze_encoder=True):
+        super(TransformerEncoderClassifier, self).__init__()
+        self.encoder = AutoModel.from_pretrained(pretrained_model)
+        if freeze_encoder:
+            for param in self.encoder.parameters():
+                param.requires_grad = False
+        self.classifier = nn.Linear(self.encoder.config.hidden_size, num_classes)
+
+    def forward(self, x, mask):
+        outputs = self.encoder(input_ids=x, attention_mask=mask)
+        cls_output = outputs.last_hidden_state[:, 0, :]
+        logits = self.classifier(cls_output)
+        return logits
+\end{lstlisting}
+
+\subsection*{実験結果}
+
+各モデルのパラメータ数とテスト精度を表\ref{tab:transformer_result}に示す。
+全モデルで学習可能パラメータは最終線形層のみの2,307個である。
+
+\begin{table}[H]
+\centering
+\caption{各Transformerエンコーダモデルのテスト精度（MultiNLI，3クラス分類，10エポック）}
+\label{tab:transformer_result}
+\begin{tabular}{lrrcc}
+\toprule
+モデル & 総パラメータ数 & 学習可能 & テスト精度 & 学習時間（s） \\
+\midrule
+bert-base-uncased                 & 109,484,547 & 2,307 & 0.500 & 369.67 \\
+distilbert-base-uncased           &  66,365,187 & 2,307 & 0.496 & 200.39 \\
+google/electra-base-discriminator & 108,893,955 & 2,307 & \textbf{0.638} & 220.41 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+3モデルの訓練・検証精度の推移を図に示す。
+
+\subsection*{考察}
+
+MultiNLIは3クラス分類であるためランダムベースラインは33.3\%であり、
+前回（第7回）のLSTMの最終検証精度は0.505であった。
+
+bert-base-uncasedはテスト精度0.500を達成し、LSTMと同程度の精度を示した。
+エンコーダを固定した状態でも高い精度が得られた要因として、
+BERTのMLM（Masked Language Modeling）とNSP（Next Sentence Prediction）による
+大規模コーパスでの事前学習を通じて、[CLS]トークンの表現が
+文対の意味関係を捉えた汎用的な表現となっていることが挙げられる。
+
+distilbert-base-uncasedはテスト精度0.496とBERTをわずかに下回ったが、
+総パラメータ数はBERTの60\%であり、
+学習時間も200.39秒とBERTの369.67秒に比べて46\%短縮された。
+教師モデル（BERT）の出力分布を学習することで、
+半分の層数でありながら性能の大部分を維持できることが確認された。
+
+google/electra-base-discriminatorはテスト精度0.638を達成し、
+BERTを13.8ポイント、DistilBERTを14.2ポイント大幅に上回った。
+
+Self-attentionによる全トークンの並列処理という点では3モデルとも共通しており、
+BERTとLSTMの精度がほぼ同等であったことから、Transformerが
+RNNの逐次処理と同程度の文含意認識能力を持つことが確認された。
+
+\section*{任意課題（Vision Transformerによる画像分類，+30点）}
+
+\begin{itemize}
+    \item Oxford-IIIT Pet Datasetに対して、事前学習済みVision Transformerモデルを
+    用いた画像分類器を学習・評価するプログラムを実行せよ。
+\end{itemize}
+
+Oxford-IIIT Pet Dataset（37クラス）を用いて、3種類の事前学習済みViT系モデルによる
+画像分類を実施した。エンコーダを固定し、最終線形層のみを学習する構成をとった。
+
+\subsection*{実装}
+
+\begin{lstlisting}[language=Python]
+class ViTClassifier(nn.Module):
+    def __init__(self, pretrained_model, num_classes, freeze_encoder=True):
+        super().__init__()
+        self.vit = AutoModel.from_pretrained(pretrained_model)
+        if freeze_encoder:
+            for param in self.vit.parameters():
+                param.requires_grad = False
+        self.classifier = nn.Linear(self.vit.config.hidden_size, num_classes)
+
+    def forward(self, pixel_values):
+        outputs = self.vit(pixel_values=pixel_values)
+        cls_token = outputs.last_hidden_state[:, 0, :]
+        logits = self.classifier(cls_token)
+        return logits
+\end{lstlisting}
+
+\subsection*{実験結果}
+
+3モデルのテスト精度を表\ref{tab:vit_result}に示す。
+
+\begin{table}[H]
+\centering
+\caption{各ViT系モデルのテスト精度（Oxford-IIIT Pet Dataset，10エポック）}
+\label{tab:vit_result}
+\begin{tabular}{lrrcc}
+\toprule
+モデル & 総パラメータ数 & 学習可能 & テスト精度 & macro avg F1 \\
+\midrule
+google/vit-base-patch16-224     & 86,417,701 & 28,453 & \textbf{0.923} & 0.92 \\
+microsoft/beit-base-patch16-224 & 85,790,437 & 28,453 & 0.834 & 0.82 \\
+facebook/vit-mae-base           & 85,827,109 & 28,453 & 0.424 & 0.42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+3モデルの訓練・検証精度の推移を図に示す。
+
+\subsection*{考察}
+
+第6回のResNet-18 Freeze構成（テスト精度0.868）と比較して考察する。
+
+google/vit-base-patch16-224はテスト精度0.923を達成し、ResNet-18を5.5ポイント上回った。
+ImageNet-21k（21,841クラス，1,400万画像）での教師あり大規模事前学習により、
+Self-attentionによる全パッチ間の大局的依存関係を捉えた汎用的な表現が
+ペット分類タスクにも有効に機能した。
+エポック1から訓練精度0.806・検証精度0.923という高い初期値を示しており、
+事前学習済みパッチ埋め込み表現の質の高さが確認できる。
+
+microsoft/beit-base-patch16-224はテスト精度0.834となり、
+ViTを8.9ポイント下回り、ResNet-18 Freeze（0.868）も下回る結果となった。
+
+facebook/vit-mae-base（MAE）はテスト精度0.424とランダムベースライン33.3\%を
+わずかに上回るにとどまった。
+
+\end{document}

@@ -1,0 +1,28 @@
+# platex + dvipdfmx 設定
+$pdf_mode = 3;
+
+# 中間生成ファイルの格納ディレクトリ（存在しなければ latexmk が自動作成）
+my $build_dir = '.latexbuild';
+$out_dir = $build_dir;   # DVI など一次出力
+$aux_dir = $build_dir;   # aux / log など補助ファイル
+
+$latex  = 'platex -interaction=nonstopmode -synctex=1 %O %S';
+$dvipdf = 'dvipdfmx %O -o $(basename %D) %S && cp $(basename %D) %D';
+
+# 中間ファイル削除対象
+$clean_ext = "dvi aux log out toc lof lot fls fdb_latexmk nav snm";
+
+# コンパイルを必要回数自動実行
+$max_repeat = 5;
+
+# PNG → EPS 自動変換（PSTricks が dvips ドライバを強制するため）
+add_cus_dep('png', 'eps', 0, 'png2eps');
+sub png2eps {
+    return system("magick \"$_[0].png\" \"$_[0].eps\"");
+}
+
+# JPG → EPS 自動変換（PSTricks が dvips ドライバを強制するため）
+add_cus_dep('jpg', 'eps', 0, 'jpg2eps');
+sub jpg2eps {
+    return system("magick \"$_[0].jpg\" \"$_[0].eps\"");
+}
